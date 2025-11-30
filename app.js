@@ -1,4 +1,4 @@
-// app.js — Consolidado y con parsing flexible para entradas monetarias (puntos/comas/thousands)
+// app.js — Consolidado y limpiado
 // Conserva toda la lógica: almacenamiento, transacciones, presupuestos vinculados, modales, export, interés, reportes, toasts.
 
 (function () {
@@ -10,56 +10,6 @@
   });
   const nowISO = () => new Date().toISOString();
   const uid = () => (crypto && crypto.randomUUID) ? crypto.randomUUID() : ('id-' + Date.now() + '-' + Math.floor(Math.random() * 10000));
-
-  // Parse flexible currency input: accepts "1.234,56", "1234.56", "1,234.56", "1234,56", "1000", "1 000,50"
-  // Returns Number (or NaN if cannot parse)
-  function parseCurrencyInput(raw) {
-    if (raw === undefined || raw === null) return NaN;
-    let s = String(raw).trim();
-    if (s === '') return NaN;
-
-    // Remove non-numeric except separators and minus
-    // But keep '.' and ',' and '-'
-    s = s.replace(/[^\d\.,\-]/g, '');
-
-    // If both '.' and ',' exist, assume '.' thousands and ',' decimal (European) if last separator is comma
-    // Example: "1.234,56" -> "1234.56"
-    if (s.indexOf('.') !== -1 && s.indexOf(',') !== -1) {
-      // If comma appears after last dot, treat comma as decimal separator
-      const lastDot = s.lastIndexOf('.');
-      const lastComma = s.lastIndexOf(',');
-      if (lastComma > lastDot) {
-        // remove dots, replace comma with dot
-        s = s.replace(/\./g, '').replace(/,/g, '.');
-      } else {
-        // uncommon case: dot after comma => treat dot as decimal, remove commas
-        s = s.replace(/,/g, '');
-      }
-    } else if (s.indexOf(',') !== -1) {
-      // only comma present -> treat comma as decimal separator
-      s = s.replace(/,/g, '.');
-    } else {
-      // only dots or none -> keep dots (dot as decimal or thousands?). If there are multiple dots, remove thousands dots keeping last as decimal
-      const dots = (s.match(/\./g) || []).length;
-      if (dots > 1) {
-        // remove all dots except last
-        const parts = s.split('.');
-        const last = parts.pop();
-        s = parts.join('') + '.' + last;
-      }
-      // else leave single dot as decimal
-    }
-
-    // Edge: now s should be like "-1234.56" or "1234" etc.
-    // Final cleanup: remove any character not digit, dot, minus
-    s = s.replace(/[^\d\.\-]/g, '');
-
-    // If it is just '-' or '.' or empty -> NaN
-    if (!/[0-9]/.test(s)) return NaN;
-
-    const n = Number(s);
-    return isNaN(n) ? NaN : n;
-  }
 
   // ---------- Toast ----------
   function showToast(message, type = 'info', duration = 5000) {
@@ -95,6 +45,7 @@
       data = JSON.stringify(s, null, 2); mimeType = 'application/json';
       filename = `banklar-backup-${new Date().toISOString().split('T')[0]}.json`;
     } else {
+      // csv
       const headers = ['Fecha', 'Tipo', 'Monto', 'Cuenta', 'Categoría/Origen', 'Descripción'];
       const rows = (s.transactions || []).map(tx => [
         tx.date.split('T')[0],
@@ -166,7 +117,7 @@
     expensesReportModal: $('expenses-report-modal')
   };
 
-  // ---------- Category helpers ----------
+  // ---------- Categories ----------
   function getCategories() {
     const fromTx = (state.transactions || []).filter(t => t.type === 'expense' && t.category).map(t => String(t.category).trim());
     const fromBudgets = Object.keys(state.budgets || {});
@@ -203,7 +154,11 @@
 
   function calcExpensesByCategory() {
     const map = {};
-    (state.transactions || []).forEach(t => { if (t.type === 'expense') { const c = t.category || 'Otros'; map[c] = (map[c] || 0) + Number(t.amount); } });
+    (state.transactions || []).forEach(t => {
+      if (t.type === 'expense') {
+        const c = t.category || 'Otros'; map[c] = (map[c] || 0) + Number(t.amount);
+      }
+    });
     return map;
   }
 
@@ -288,7 +243,7 @@
     const projected = (balances.nu * (Number(state.settings.nuEA) / 100)); if (el.projectedInterest) el.projectedInterest.textContent = money(projected, currency);
 
     renderAlerts(balances, totals);
-    renderBudgets();
+    renderBudgets(balances, totals);
     renderExpensesPie();
     populateCategorySelects();
 
@@ -376,8 +331,7 @@
   // ---------- Interest ----------
   function daysBetween(a, b) { return Math.floor((new Date(b) - new Date(a)) / (1000 * 60 * 60 * 24)); }
   function computeAccruedInterest() {
-    if (!state.meta.lastInterestApplied) return 0;
-    const balances = computeBalances(); const days = daysBetween(state.meta.lastInterestApplied, nowISO()); if (days <= 0) return 0;
+    if (!state.meta.lastInterestApplied) return 0; const balances = computeBalances(); const days = daysBetween(state.meta.lastInterestApplied, nowISO()); if (days <= 0) return 0;
     const annualRate = Number(state.settings.nuEA || 0) / 100; return balances.nu * annualRate * (days / 365);
   }
   function applyInterestNow() {
@@ -408,51 +362,13 @@
     [el.setupModal, el.viewAllModal, el.settingsModal, el.budgetsModal, $('export-modal'), $('expenses-report-modal')].forEach(m => { if (m) m.classList.add('hidden'); });
     hideOverlay();
   }
-
-  function showSetup() {
-    showOverlay(); if (el.setupModal) el.setupModal.classList.remove('hidden');
-    // Populate setup inputs with plain numeric text (no localized formatting while editing)
-    if ($('user-nu')) {
-      const v = state.user ? state.user.nu : 0;
-      // show with dot decimal for predictability, but leave as plain number so the user can type comma/dot freely
-      $('user-nu').value = (v !== undefined && v !== null) ? String(Number(v).toFixed(2)) : '0.00';
-      // hint mobile keyboards to show decimal
-      $('user-nu').setAttribute('inputmode', 'decimal');
-    }
-    if ($('user-nequi')) {
-      const v = state.user ? state.user.nequi : 0;
-      $('user-nequi').value = (v !== undefined && v !== null) ? String(Number(v).toFixed(2)) : '0.00';
-      $('user-nequi').setAttribute('inputmode', 'decimal');
-    }
-    if ($('user-nu-ea')) $('user-nu-ea').value = state.settings.nuEA || 8.5;
+  function showSetup() { showOverlay(); if (el.setupModal) el.setupModal.classList.remove('hidden'); if ($('user-nu')) $('user-nu').value = state.user ? state.user.nu : 0; if ($('user-nequi')) $('user-nequi').value = state.user ? state.user.nequi : 0; if ($('user-nu-ea')) $('user-nu-ea').value = state.settings.nuEA || 8.5; }
+  function showViewAll() { showOverlay(); if (el.viewAllModal) el.viewAllModal.classList.remove('hidden'); const container = $('all-tx-container'); if (!container) return; container.innerHTML = ''; const typeFilter = $('tx-filter-type') ? $('tx-filter-type').value : 'all'; const accountFilter = $('tx-filter-account') ? $('tx-filter-account').value : 'all'; const searchFilter = $('tx-search') ? $('tx-search').value : ''; const filtered = filterTransactions(typeFilter, accountFilter, searchFilter).sort((a, b) => new Date(b.date) - new Date(a.date)); if (filtered.length === 0) { container.innerHTML = '<div class="meta">No hay transacciones que coincidan con los filtros.</div>'; return; } filtered.forEach(tx => { const div = document.createElement('div'); div.className = 'tx-row'; div.innerHTML = `<div><div><strong>${tx.type === 'income' ? '+' : '-'} ${money(tx.amount, state.settings.currency)}</strong> <span class="meta">| ${tx.account.toUpperCase()} | ${tx.date.slice(0,10)}</span></div><div class="meta">${tx.type === 'income' ? (tx.source || 'Ingreso') : (tx.category || 'Gasto')}</div></div><div style="display:flex;gap:6px;align-items:center"><button class="btn-ghost" data-action="revert" data-id="${tx.id}">Eliminar</button></div>`; container.appendChild(div); });
   }
-
-  function showViewAll() {
-    showOverlay(); if (el.viewAllModal) el.viewAllModal.classList.remove('hidden');
-    const container = $('all-tx-container'); if (!container) return; container.innerHTML = '';
-    const typeFilter = $('tx-filter-type') ? $('tx-filter-type').value : 'all';
-    const accountFilter = $('tx-filter-account') ? $('tx-filter-account').value : 'all';
-    const searchFilter = $('tx-search') ? $('tx-search').value : '';
-    const filtered = filterTransactions(typeFilter, accountFilter, searchFilter).sort((a, b) => new Date(b.date) - new Date(a.date));
-    if (filtered.length === 0) { container.innerHTML = '<div class="meta">No hay transacciones que coincidan con los filtros.</div>'; return; }
-    filtered.forEach(tx => {
-      const div = document.createElement('div'); div.className = 'tx-row';
-      div.innerHTML = `<div><div><strong>${tx.type === 'income' ? '+' : '-'} ${money(tx.amount, state.settings.currency)}</strong> <span class="meta">| ${tx.account.toUpperCase()} | ${tx.date.slice(0,10)}</span></div><div class="meta">${tx.type === 'income' ? (tx.source || 'Ingreso') : (tx.category || 'Gasto')}</div></div><div style="display:flex;gap:6px;align-items:center"><button class="btn-ghost" data-action="revert" data-id="${tx.id}">Eliminar</button></div>`;
-      container.appendChild(div);
-    });
-  }
-
-  function showSettings() {
-    showOverlay(); if (el.settingsModal) el.settingsModal.classList.remove('hidden');
-    if ($('settings-nu-ea')) $('settings-nu-ea').value = state.settings.nuEA || 8.5;
-    if ($('settings-low-threshold')) $('settings-low-threshold').value = state.settings.lowThreshold || 20000;
-    if ($('settings-currency')) $('settings-currency').value = state.settings.currency || 'COP';
-  }
-
+  function showSettings() { showOverlay(); if (el.settingsModal) el.settingsModal.classList.remove('hidden'); if ($('settings-nu-ea')) $('settings-nu-ea').value = state.settings.nuEA || 8.5; if ($('settings-low-threshold')) $('settings-low-threshold').value = state.settings.lowThreshold || 20000; if ($('settings-currency')) $('settings-currency').value = state.settings.currency || 'COP'; }
   function showBudgets() {
     showOverlay(); if (!el.budgetsModal) return; el.budgetsModal.classList.remove('hidden');
-    const list = $('budgets-form-list'); if (!list) return; list.innerHTML = '';
-    const keys = Object.keys(state.budgets); const cats = getCategories();
+    const list = $('budgets-form-list'); if (!list) return; list.innerHTML = ''; const keys = Object.keys(state.budgets); const cats = getCategories();
     if (keys.length === 0) { const p = document.createElement('div'); p.className = 'meta'; p.textContent = 'Aún no hay presupuestos. Agrega uno abajo.'; list.appendChild(p); }
     let i = 0;
     keys.forEach(k => {
@@ -466,35 +382,10 @@
       div.appendChild(selHtml); div.appendChild(amtInput); div.appendChild(btn); list.appendChild(div); i++;
     });
   }
-
   function showExportModal() { showOverlay(); const m = $('export-modal'); if (m) m.classList.remove('hidden'); }
 
-  // ---------- Filters ----------
-  function filterTransactions(type = 'all', account = 'all', search = '') {
-    return (state.transactions || []).filter(tx => {
-      if (type !== 'all' && tx.type !== type) return false;
-      if (account !== 'all' && tx.account !== account) return false;
-      if (search) {
-        const s = search.toLowerCase();
-        if (String(tx.amount).includes(search)) return true;
-        if ((tx.source || '').toLowerCase().includes(s)) return true;
-        if ((tx.category || '').toLowerCase().includes(s)) return true;
-        if ((tx.date || '').toLowerCase().includes(s)) return true;
-        return false;
-      }
-      return true;
-    });
-  }
-
   // ---------- Events ----------
-  if (el.txType) el.txType.addEventListener('change', e => {
-    const isIncome = e.target.value === 'income';
-    if (el.incomeSourceRow) el.incomeSourceRow.style.display = isIncome ? 'block' : 'none';
-    if (el.expenseCategoryRow) el.expenseCategoryRow.style.display = isIncome ? 'none' : 'block';
-    if (el.depositToNu && el.depositToNu.parentElement) el.depositToNu.parentElement.style.display = isIncome ? 'block' : 'none';
-    populateCategorySelects();
-  });
-
+  if (el.txType) el.txType.addEventListener('change', e => { const isIncome = e.target.value === 'income'; if (el.incomeSourceRow) el.incomeSourceRow.style.display = isIncome ? 'block' : 'none'; if (el.expenseCategoryRow) el.expenseCategoryRow.style.display = isIncome ? 'none' : 'block'; if (el.depositToNu && el.depositToNu.parentElement) el.depositToNu.parentElement.style.display = isIncome ? 'block' : 'none'; populateCategorySelects(); });
   if (el.depositToNu) el.depositToNu.addEventListener('change', e => { if (el.nuSplitRow) el.nuSplitRow.style.display = e.target.checked ? 'block' : 'none'; });
 
   if (el.txForm) {
@@ -505,7 +396,7 @@
       const account = el.txAccount.value; const date = nowISO();
       if (type === 'income') {
         const source = el.incomeSource.value; const depositNU = el.depositToNu && el.depositToNu.checked; let nuAllocated = 0;
-        if (depositNU) { const split = parseCurrencyInput(el.nuSplitAmount.value || '') || 0; nuAllocated = (split > 0 && split < amount) ? split : amount; }
+        if (depositNU) { const split = Number(el.nuSplitAmount.value || 0); nuAllocated = (split > 0 && split < amount) ? split : amount; }
         const tx = { id: uid(), type: 'income', amount: Number(amount.toFixed(2)), date, account, source, nuAllocated: nuAllocated > 0 ? Number(nuAllocated.toFixed(2)) : 0 };
         addTransaction(tx);
       } else {
@@ -521,7 +412,9 @@
     const action = e.target.dataset.action, id = e.target.dataset.id;
     if (!action) return;
     if (action === 'del' || action === 'revert') {
-      if (confirm('¿Eliminar transacción? Esto revertirá su efecto.')) { removeTransactionById(id); if (action === 'revert') showViewAll(); }
+      if (confirm('¿Eliminar transacción? Esto revertirá su efecto.')) {
+        removeTransactionById(id); if (action === 'revert') showViewAll();
+      }
     } else if (action === 'view') {
       const tx = state.transactions.find(t => t.id === id); if (!tx) return;
       alert(`Transacción:\nID: ${tx.id}\nTipo: ${tx.type}\nMonto: ${money(tx.amount, state.settings.currency)}\nCuenta: ${tx.account}\n${tx.type === 'income' ? 'Origen: ' + tx.source : 'Categoría: ' + tx.category}`);
@@ -553,12 +446,11 @@
   on('btn-export-csv', 'click', () => exportData('csv')); on('btn-export-json', 'click', () => exportData('json'));
 
   on('btn-add-budget', 'click', () => {
-    const sel = $('new-budget-name'); const name = sel ? sel.value : ''; const amt = parseCurrencyInput($('new-budget-amt').value || '') || 0;
+    const sel = $('new-budget-name'); const name = sel ? sel.value : ''; const amt = Number($('new-budget-amt').value || 0);
     if (!name) { showToast('Selecciona una categoría válida', 'error'); return; }
     if (amt <= 0) { showToast('Ingresa monto mayor a 0', 'error'); return; }
     state.budgets[name] = amt; if (saveState(state)) showToast('Presupuesto agregado', 'success');
-    if (sel) sel.value = ''; $('new-budget-amt').value = '';
-    populateCategorySelects(); showBudgets(); renderAll();
+    if (sel) sel.value = ''; $('new-budget-amt').value = ''; populateCategorySelects(); showBudgets(); renderAll();
   });
 
   const budgetsListEl = $('budgets-form-list');
@@ -580,27 +472,11 @@
     populateCategorySelects(); hideAllModals(); renderAll();
   });
 
-  if ($('setup-form')) {
-    $('setup-form').addEventListener('submit', e => {
-      e.preventDefault();
-      const name = $('user-name').value.trim();
-      // Parse flexible numeric input for user nu/nequi
-      const nuParsed = parseCurrencyInput($('user-nu').value);
-      const nequiParsed = parseCurrencyInput($('user-nequi').value);
-      if (isNaN(nuParsed) || isNaN(nequiParsed)) {
-        showToast('Revisa los montos. Usa coma o punto como separador decimal.', 'error');
-        return;
-      }
-      const nu = Number(nuParsed.toFixed(2));
-      const nequi = Number(nequiParsed.toFixed(2));
-      const ea = Number($('user-nu-ea').value || 8.5);
-      state.user = { name, nu, nequi, createdAt: nowISO() };
-      state.settings.nuEA = ea;
-      if (!state.meta.lastInterestApplied) state.meta.lastInterestApplied = nowISO();
-      if (saveState(state)) showToast('Configuración inicial guardada', 'success');
-      hideAllModals(); populateCategorySelects(); renderAll();
-    });
-  }
+  if ($('setup-form')) $('setup-form').addEventListener('submit', e => {
+    e.preventDefault(); const name = $('user-name').value.trim(); const nu = Number($('user-nu').value || 0); const nequi = Number($('user-nequi').value || 0); const ea = Number($('user-nu-ea').value || 8.5);
+    state.user = { name, nu, nequi, createdAt: nowISO() }; state.settings.nuEA = ea; if (!state.meta.lastInterestApplied) state.meta.lastInterestApplied = nowISO();
+    if (saveState(state)) showToast('Configuración inicial guardada', 'success'); hideAllModals(); populateCategorySelects(); renderAll();
+  });
 
   if (el.refreshBalances) el.refreshBalances.addEventListener('click', () => { renderAll(); showToast('Balances actualizados', 'success'); });
   if (el.btnExpensesReport) el.btnExpensesReport.addEventListener('click', showExpensesReport);
@@ -613,12 +489,6 @@
   window.__banklar_clear = function () { if (confirm('¿Borrar todos los datos locales?')) { localStorage.removeItem(STORAGE_KEY); location.reload(); } };
 
   // ---------- Init ----------
-  // Enhance numeric inputs for better mobile keyboards
-  if ($('user-nu')) $('user-nu').setAttribute('inputmode', 'decimal');
-  if ($('user-nequi')) $('user-nequi').setAttribute('inputmode', 'decimal');
-  if ($('new-budget-amt')) $('new-budget-amt').setAttribute('inputmode', 'decimal');
-  if ($('nu-split-amount')) $('nu-split-amount').setAttribute('inputmode', 'decimal');
-
   if (!state.meta.lastInterestApplied && state.user) state.meta.lastInterestApplied = nowISO();
   window.addEventListener('load', () => { populateCategorySelects(); const interest = computeAccruedInterest(); if (interest > 0.01) console.log(`Interés acumulado: ${money(interest, state.settings.currency)}`); renderAll(); });
 
