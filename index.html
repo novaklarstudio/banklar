@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Banklar — App</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="logo">B</div>
+      <div>
+        <h1>Banklar</h1>
+        <p id="greeting">Bienvenido</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-settings" class="btn-ghost" title="Ajustes">Ajustes</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="cards">
+      <article class="card balance-card">
+        <h2>Balances</h2>
+        <div class="balances">
+          <div class="balance-item">
+            <div class="label">Caja Nu</div>
+            <div class="amount" id="balance-nu">$0.00</div>
+            <div class="small" id="nu-interest-info">EA: 8.5%</div>
+          </div>
+          <div class="balance-item">
+            <div class="label">Nequi</div>
+            <div class="amount" id="balance-nequi">$0.00</div>
+            <div class="small">Disponible</div>
+          </div>
+          <div class="balance-item">
+            <div class="label">Total</div>
+            <div class="amount" id="balance-total">$0.00</div>
+            <div class="small" id="balance-status"></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="card quick-add">
+        <h2>Registrar Transacción</h2>
+        <form id="tx-form">
+          <div class="row">
+            <label>Tipo</label>
+            <select id="tx-type" required>
+              <option value="income">Ingreso</option>
+              <option value="expense">Gasto</option>
+            </select>
+          </div>
+
+          <div class="row" id="income-source-row">
+            <label>Origen (Ingreso)</label>
+            <select id="income-source">
+              <option value="Salario">Salario</option>
+              <option value="Banklar">Banklar</option>
+              <option value="Otros">Otros ingresos</option>
+            </select>
+          </div>
+
+          <div class="row" id="expense-category-row" style="display:none">
+            <label>Categoría (Gasto)</label>
+            <select id="expense-category">
+              <option value="Transporte">Transporte</option>
+              <option value="Skincare">Skincare</option>
+              <option value="Salud">Salud</option>
+              <option value="Entretenimiento">Entretenimiento</option>
+              <option value="Comida">Comida</option>
+              <option value="Otros">Otros</option>
+            </select>
+          </div>
+
+          <div class="row">
+            <label>Monto</label>
+            <input id="tx-amount" type="number" min="0.01" step="0.01" placeholder="0.00" required>
+          </div>
+
+          <div class="row">
+            <label>Cuenta</label>
+            <select id="tx-account">
+              <option value="nequi">Nequi</option>
+              <option value="nu">Caja Nu</option>
+            </select>
+          </div>
+
+          <div class="row" id="deposit-to-nu-row">
+            <label>
+              <input type="checkbox" id="deposit-to-nu"> Depositar todo/parte en Caja Nu
+            </label>
+          </div>
+
+          <div class="row" id="nu-split-row" style="display:none">
+            <label>Monto a enviar a NU (dejar vacío para todo)</label>
+            <input id="nu-split-amount" type="number" min="0" step="0.01" placeholder="Ej: 50.00">
+          </div>
+
+          <div class="row actions">
+            <button type="submit" class="btn-primary">Registrar</button>
+            <button type="button" id="btn-view-all" class="btn-ghost">Ver todas</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="card stats-card">
+        <h2>Estadísticas & Alertas</h2>
+        <div id="alerts" class="alerts"></div>
+
+        <div class="stats-wrapper">
+          <div class="stat-grid">
+            <div class="stat-item stat-income">
+              <div class="stat-label">Ingresos</div>
+              <div class="stat-value" id="total-incomes">$0.00</div>
+              <div class="stat-sub">Total recibido</div>
+            </div>
+
+            <div class="stat-item stat-expense">
+              <div class="stat-label">Gastos</div>
+              <div class="stat-value" id="total-expenses">$0.00</div>
+              <div class="stat-sub">Total gastado</div>
+              <!-- NUEVO: botón para ver reporte completo de gastos -->
+              <div style="margin-top:8px">
+                <button id="btn-expense-report" class="btn-ghost">Reporte completo</button>
+              </div>
+            </div>
+
+            <div class="stat-item stat-saved">
+              <div class="stat-label">Ahorro recomendado</div>
+              <div class="stat-value" id="suggested-savings">—</div>
+              <div class="stat-sub">Sugerencia inteligente</div>
+            </div>
+
+            <div class="stat-item stat-interest">
+              <div class="stat-label">Interés proyectado (1 año)</div>
+              <div class="stat-value" id="projected-interest">$0.00</div>
+              <div class="stat-sub">Si permaneciera en Caja Nu</div>
+            </div>
+          </div>
+
+          <!-- Gráfica eliminada: espacio reutilizado para texto o insights -->
+          <div class="chart-area">
+            <div class="meta">Resumen de gastos: consulta la sección "Insights" o "Presupuestos" para ver detalles.</div>
+          </div>
+        </div>
+
+      </article>
+    </section>
+
+    <section class="transactions">
+      <article class="card tx-list">
+        <h2>Últimas transacciones</h2>
+        <ul id="last-tx-list" class="tx-items"></ul>
+        <div class="center">
+          <button id="btn-view-all-2" class="btn-ghost">Ver todas</button>
+        </div>
+      </article>
+
+      <article class="card budgets">
+        <h2>Presupuesto de gastos</h2>
+        <div id="budgets-list"></div>
+        <div class="center">
+          <button id="btn-edit-budgets" class="btn-ghost">Editar / Crear presupuestos</button>
+        </div>
+      </article>
+    </section>
+
+    <section class="container-insights" style="max-width:1100px;margin:0 auto;padding:0 14px;">
+      <article class="card">
+        <h2>Insights</h2>
+        <div id="insights" class="meta">Sugerencias rápidas aparecerán aquí.</div>
+      </article>
+    </section>
+
+  </main>
+
+  <!-- Modals -->
+  <div id="modal-overlay" class="modal-overlay hidden"></div>
+
+  <!-- First run modal -->
+  <div id="setup-modal" class="modal hidden">
+    <h3>Primera vez — Configura tu cuenta</h3>
+    <form id="setup-form">
+      <div class="row">
+        <label>Nombre</label>
+        <input id="user-name" type="text" required placeholder="Tu nombre">
+      </div>
+      <div class="row">
+        <label>Sueldo/Saldo en Caja Nu</label>
+        <input id="user-nu" type="number" min="0" step="0.01" value="0.00" required>
+      </div>
+      <div class="row">
+        <label>Saldo en Nequi</label>
+        <input id="user-nequi" type="number" min="0" step="0.01" value="0.00" required>
+      </div>
+      <div class="row">
+        <label>% EA (Caja Nu)</label>
+        <input id="user-nu-ea" type="number" min="0" step="0.01" value="8.5" required>
+      </div>
+      <div class="row actions">
+        <button type="submit" class="btn-primary">Guardar y empezar</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- View all modal -->
+  <div id="view-all-modal" class="modal hidden">
+    <h3>Todas las transacciones</h3>
+    <div id="all-tx-container" class="all-tx"></div>
+    <div class="row actions">
+      <button id="close-all-tx" class="btn-ghost">Cerrar</button>
+    </div>
+  </div>
+
+  <!-- Expense report modal (nuevo) -->
+  <div id="expense-report-modal" class="modal hidden">
+    <h3>Reporte completo de gastos</h3>
+    <div id="expense-report-container" class="all-tx"></div>
+    <div class="row actions">
+      <button id="close-expense-report" class="btn-ghost">Cerrar</button>
+    </div>
+  </div>
+
+  <!-- Settings modal -->
+  <div id="settings-modal" class="modal hidden">
+    <h3>Ajustes</h3>
+    <form id="settings-form">
+      <div class="row">
+        <label>Cambiar % EA (Caja Nu)</label>
+        <input id="settings-nu-ea" type="number" min="0" step="0.01" required>
+      </div>
+      <div class="row">
+        <label>Umbral alerta saldo bajo (Total)</label>
+        <input id="settings-low-threshold" type="number" min="0" step="0.01" required>
+      </div>
+      <div class="row actions">
+        <button type="submit" class="btn-primary">Guardar</button>
+        <button id="btn-apply-interest" type="button" class="btn-ghost">Aplicar interés ahora</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Budgets modal -->
+  <div id="budgets-modal" class="modal hidden">
+    <h3>Editar / Crear presupuestos por categoría (mensual)</h3>
+    <form id="budgets-form">
+      <div id="budgets-form-list"></div>
+      <div class="row" style="margin-top:6px;gap:8px;display:flex;align-items:center">
+        <input id="new-budget-name" placeholder="Nueva categoría" type="text" style="flex:1;padding:8px;border-radius:8px;border:1px solid rgba(0,0,0,0.06)">
+        <input id="new-budget-amt" placeholder="Monto" type="number" min="0" step="0.01" style="width:120px;padding:8px;border-radius:8px;border:1px solid rgba(0,0,0,0.06)">
+        <button id="btn-add-budget" type="button" class="btn-ghost">Agregar</button>
+      </div>
+      <div class="row actions">
+        <button type="submit" class="btn-primary">Guardar presupuestos</button>
+        <button id="btn-close-budgets" class="btn-ghost" type="button">Cancelar</button>
+      </div>
+    </form>
+  </div>
+
+  <footer class="app-footer">
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
