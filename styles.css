@@ -1,163 +1,376 @@
-:root{
-  --bg:#f9f7ff;          /* light background */
-  --surface:#ffffff;     /* card surface */
-  --accent:#7c3aed;      /* purple main */
-  --accent-2:#a78bfa;    /* lighter purple */
-  --text:#1f2937;        /* dark text */
-  --muted:#6b7280;       /* muted text */
-  --glass: rgba(124,58,237,0.06);
-  --balance-item-bg: rgba(255,255,255,0.18); /* increased opacity for readability */
-  --danger:#ef4444;
-  --good:#10b981;
-  --card-border: rgba(15,9,55,0.04);
+/* styles.css — Banklar (forzado: TODO el texto dentro de modales en negro)
+   Nota: este archivo contiene todos los estilos principales de la app y, al final,
+   una regla que fuerza TODO el texto dentro de cualquier modal a color negro (#000)
+   usando !important para sobreescribir estilos heredados externos.
+*/
+
+/* =========================
+   Variables raíz / tema
+   ========================= */
+:root {
+  --bg: #f9f7ff;
+  --surface: #ffffff;
+  --accent: #7c3aed;
+  --accent-2: #a78bfa;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --glass: rgba(124, 58, 237, 0.06);
+  --balance-item-bg: rgba(255, 255, 255, 0.18);
+  --danger: #ef4444;
+  --good: #10b981;
+  --card-border: rgba(15, 9, 55, 0.04);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 6px 16px rgba(18, 25, 50, 0.04);
+  --shadow-lg: 0 20px 60px rgba(20, 20, 60, 0.08);
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
   font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
   color-scheme: light;
 }
 
-*{box-sizing:border-box}
-html,body{height:100%}
-body{
-  margin:0;
+/* Reset box-sizing */
+* { box-sizing: border-box; }
+
+/* =========================
+   Layout base
+   ========================= */
+html, body { height: 100%; }
+
+body {
+  margin: 0;
   background: linear-gradient(180deg, var(--bg) 0%, #f3f0ff 100%);
-  color:var(--text);
-  -webkit-font-smoothing:antialiased;
-  -moz-osx-font-smoothing:grayscale;
-  padding-bottom:40px;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  padding-bottom: 40px;
+  transition: background-color 0.3s ease;
 }
 
-.app-header{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  padding:14px 18px;
-  border-bottom:1px solid rgba(15,9,55,0.04);
-  background:transparent;
+/* =========================
+   Header
+   ========================= */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(15, 9, 55, 0.04);
+  background: transparent;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(10px);
 }
 
-.brand{display:flex;gap:12px;align-items:center}
-.logo{
-  background:linear-gradient(135deg,var(--accent),var(--accent-2));
-  color:white;
-  width:48px;height:48px;border-radius:10px;
-  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;
-  box-shadow:0 6px 18px rgba(124,58,237,0.12);
-}
-.app-header h1{margin:0;font-size:16px}
-.app-header p{margin:0;font-size:12px;color:var(--muted)}
+.brand { display: flex; gap: 12px; align-items: center; }
 
-.container{
-  max-width:1100px;margin:20px auto;padding:0 14px;display:grid;grid-template-columns:1fr;gap:16px;
-}
-
-.cards{display:grid;grid-template-columns:1.3fr 1fr 0.9fr;gap:16px}
-.transactions{display:grid;grid-template-columns:1fr 360px;gap:16px}
-
-/* Cards */
-.card{
-  background:var(--surface);
-  border:1px solid var(--card-border);
-  padding:16px;border-radius:12px;
-  box-shadow: 0 6px 16px rgba(18,25,50,0.04);
-  overflow:visible;
-}
-.card h2{margin:0 0 10px 0;font-size:15px}
-
-/* BALANCE CARD: filled with purple */
-.balance-card{
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+.logo {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
   color: white;
-  border: none;
-  box-shadow: 0 8px 30px rgba(124,58,237,0.12);
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 20px;
+  box-shadow: 0 6px 18px rgba(124, 58, 237, 0.12);
+  transition: transform 0.2s ease;
 }
-.balance-card .balances{display:flex;gap:12px}
+.logo:hover { transform: scale(1.05); }
 
-/* improved subcards readability */
-.balance-item{
-  flex:1;
-  background: var(--balance-item-bg);
-  padding:14px;border-radius:10px;text-align:left;
-  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06);
-}
-.balance-item .label{font-size:12px;color:rgba(255,255,255,0.95);font-weight:600}
-.amount{font-size:20px;font-weight:700;margin-top:8px;color:white}
-.small{font-size:12px;color:rgba(255,255,255,0.95);margin-top:6px}
+.app-header h1 { margin: 0; font-size: 16px; }
+.app-header p { margin: 0; font-size: 12px; color: var(--muted); }
 
-/* QUICK ADD */
-.quick-add form .row{margin-bottom:8px}
-.row label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
-.row input[type="text"], .row input[type="number"], .row select{
-  width:100%;padding:10px;border-radius:10px;border:1px solid rgba(15,9,55,0.06);background:transparent;color:var(--text);
-}
-.actions{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:8px}
-.btn-primary{background:linear-gradient(90deg,var(--accent),var(--accent-2));border:none;color:white;padding:9px 14px;border-radius:10px;cursor:pointer;font-weight:600}
-.btn-ghost{background:transparent;border:1px solid rgba(15,9,55,0.06);color:var(--muted);padding:8px 10px;border-radius:10px;cursor:pointer}
-.center{text-align:center}
-
-/* transactions list */
-.tx-items{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px}
-.tx-item{display:flex;justify-content:space-between;align-items:center;padding:10px;background:linear-gradient(180deg, rgba(124,58,237,0.03), rgba(124,58,237,0.01));border-radius:8px}
-.tx-item .meta{font-size:12px;color:var(--muted)}
-.tx-item .actions{gap:6px}
-.tx-item .delete{background:transparent;border:none;color:var(--danger);cursor:pointer}
-
-/* STATS CARD */
-.stats-wrapper{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
-.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;flex:1;min-width:220px}
-.stat-item{
-  background:linear-gradient(180deg,#fff,#fbf7ff);
-  border:1px solid rgba(15,9,55,0.04);
-  padding:10px;border-radius:10px;
-  display:flex;flex-direction:column;gap:6px;
-}
-.stat-label{font-size:12px;color:var(--muted)}
-.stat-value{font-size:16px;font-weight:700;color:var(--text)}
-.stat-sub{font-size:12px;color:var(--muted)}
-
-/* specialized colors */
-.stat-income .stat-value{color:#059669} /* green for incomes */
-.stat-expense .stat-value{color:#ef4444} /* red for expenses */
-.stat-saved .stat-value{color:var(--accent)}
-.stat-interest .stat-value{color:#6b7280}
-
-/* chart area (now textual placeholder) */
-.chart-area{width:220px;min-width:180px}
-.chart-area .meta{font-size:13px;color:var(--muted);padding:6px}
-
-/* modal */
-.modal-overlay{position:fixed;inset:0;background:rgba(15,9,55,0.08);z-index:40}
-.hidden{display:none}
-.modal{position:fixed;z-index:50;left:50%;top:50%;transform:translate(-50%,-50%);width:520px;max-width:95%;background:linear-gradient(180deg,#ffffff, #fbf7ff);border-radius:12px;padding:18px;border:1px solid rgba(124,58,237,0.06);box-shadow:0 20px 60px rgba(20,20,60,0.08)}
-
-.all-tx{max-height:420px;overflow:auto}
-.all-tx .tx-row{display:flex;justify-content:space-between;padding:10px;border-bottom:1px dashed rgba(15,9,55,0.02);align-items:center}
-
-/* budgets */
-.budgets .progress{background:rgba(15,9,55,0.04);height:10px;border-radius:8px;overflow:hidden;margin-top:6px}
-.budgets .progress > i{display:block;height:100%;background:linear-gradient(90deg,#c084fc,#7c3aed)}
-
-/* alerts */
-.alerts .alert{padding:10px;border-radius:8px;margin-bottom:8px}
-.alert.danger{background:linear-gradient(90deg,#fee2e2,#fecaca);color:#5f1a1a}
-.alert.good{background:linear-gradient(90deg,#dcfce7,#bbf7d0);color:#064e3b}
-.alert.info{background:linear-gradient(90deg,#ede9fe,#e9d5ff);color:#3b0764}
-
-/* responsive */
-@media (max-width:1000px){
-  .cards{grid-template-columns:1fr}
-  .transactions{grid-template-columns:1fr}
+/* =========================
+   Main container / grid
+   ========================= */
+.container {
+  max-width: 1100px;
+  margin: 20px auto;
+  padding: 0 14px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
 }
 
-@media (max-width:600px){
-  .app-header{padding:12px}
-  .brand h1{font-size:15px}
-  .logo{width:44px;height:44px;font-size:18px}
-  .card{padding:12px;border-radius:10px}
-  .amount{font-size:18px}
-  .stats-wrapper{flex-direction:column}
-  .stat-grid{grid-template-columns:1fr}
-  .chart-area{width:100%}
-  .transactions{grid-template-columns:1fr}
-  .balances{flex-direction:column}
-  .actions{flex-direction:column;align-items:stretch}
-  .actions .btn-ghost, .actions .btn-primary{width:100%}
-} 
+.cards { display: grid; grid-template-columns: 1.3fr 1fr 0.9fr; gap: 16px; }
+.transactions { display: grid; grid-template-columns: 1fr 360px; gap: 16px; }
+
+/* =========================
+   Cards
+   ========================= */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: visible;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+.card h2 { margin: 0 0 10px 0; font-size: 15px; }
+
+.card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+
+.refresh-btn {
+  background: transparent; border: none; color: var(--muted);
+  cursor: pointer; padding: 4px; border-radius: 50%; transition: all 0.2s ease;
+}
+.refresh-btn:hover { background: rgba(0,0,0,0.05); color: var(--accent); transform: rotate(90deg); }
+
+/* Balance card */
+.balance-card {
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  color: white; border: none; box-shadow: 0 8px 30px rgba(124, 58, 237, 0.12);
+}
+.balance-card .balances { display:flex; gap:12px; }
+.balance-item {
+  flex:1; background: var(--balance-item-bg); padding:14px; border-radius:var(--radius-md);
+  text-align:left; box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06); transition: transform 0.2s ease;
+}
+.balance-item:hover { transform: translateY(-2px); }
+.balance-item .label { font-size:12px; color: rgba(255,255,255,0.95); font-weight:600; }
+.amount { font-size:20px; font-weight:700; margin-top:8px; color:white; }
+.small { font-size:12px; color: rgba(255,255,255,0.95); margin-top:6px; }
+
+/* =========================
+   Forms / quick add
+   ========================= */
+.quick-add form .row { margin-bottom: 8px; }
+
+.row label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
+
+.row input[type="text"], .row input[type="number"], .row select {
+  width:100%; padding:10px; border-radius:var(--radius-md);
+  border:1px solid rgba(15,9,55,0.06); background:transparent; color:var(--text);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.row input[type="text"]:focus, .row input[type="number"]:focus, .row select:focus {
+  outline:none; border-color:var(--accent); box-shadow: 0 0 0 3px rgba(124,58,237,0.1);
+}
+
+/* Buttons */
+.actions { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:8px; }
+
+.btn-primary {
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border:none; color:white; padding:9px 14px; border-radius:var(--radius-md);
+  cursor:pointer; font-weight:600; transition: all 0.2s ease;
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(124,58,237,0.2); }
+
+.btn-ghost {
+  background: transparent; border:1px solid rgba(15,9,55,0.06);
+  color: var(--muted); padding:8px 10px; border-radius:var(--radius-md);
+  cursor:pointer; transition: all 0.2s ease;
+}
+.btn-ghost:hover { background: rgba(15,9,55,0.03); color: var(--text); }
+
+.btn-small { padding:6px 10px; font-size:13px; border-radius:10px; width:140px; text-align:center; }
+
+/* =========================
+   Transactions list
+   ========================= */
+.tx-container { max-height: 300px; overflow-y: auto; margin-bottom: 10px; }
+.tx-items { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px; }
+
+.tx-item {
+  display:flex; justify-content:space-between; align-items:center; padding:10px;
+  background: linear-gradient(180deg, rgba(124,58,237,0.03), rgba(124,58,237,0.01));
+  border-radius: var(--radius-sm); transition: background-color 0.2s ease;
+}
+.tx-item:hover { background: linear-gradient(180deg, rgba(124,58,237,0.06), rgba(124,58,237,0.03)); }
+.tx-item .meta { font-size:12px; color:var(--muted); }
+.tx-item .actions { gap:6px; }
+.tx-item .delete { background:transparent; border:none; color:var(--danger); cursor:pointer; transition: color 0.2s ease; }
+.tx-item .delete:hover { color:#dc2626; }
+
+/* =========================
+   Stats
+   ========================= */
+.stats-wrapper { display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap; }
+.stat-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; flex:1; min-width:220px; }
+.stat-item { background: linear-gradient(180deg,#fff,#fbf7ff); border:1px solid rgba(15,9,55,0.04); padding:10px; border-radius:var(--radius-md); display:flex; flex-direction:column; gap:6px; transition: transform 0.2s ease; }
+.stat-item:hover { transform: translateY(-2px); }
+.stat-label { font-size:12px; color:var(--muted); }
+.stat-value { font-size:16px; font-weight:700; color:var(--text); }
+.stat-sub { font-size:12px; color:var(--muted); }
+.stat-income .stat-value { color:#059669; }
+.stat-expense .stat-value { color:#ef4444; }
+.stat-saved .stat-value { color:var(--accent); }
+.stat-interest .stat-value { color:#6b7280; }
+
+/* chart area */
+.chart-area { width:220px; min-width:180px; display:flex; align-items:center; justify-content:center; }
+
+/* =========================
+   Modal base and overlay
+   ========================= */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(15,9,55,0.08);
+  z-index: 40; backdrop-filter: blur(4px);
+}
+.hidden { display: none; }
+
+.modal {
+  position: fixed; z-index: 50; left: 50%; top: 50%;
+  transform: translate(-50%,-50%); width: 520px; max-width:95%; max-height:90vh;
+  overflow-y:auto; background: linear-gradient(180deg,#ffffff,#fbf7ff);
+  border-radius: var(--radius-lg); padding: 18px; border:1px solid rgba(124,58,237,0.06);
+  box-shadow: var(--shadow-lg); color: var(--text);
+}
+
+/* Legibilidad dentro de modal: controles y textos */
+.modal h3, .modal label, .modal .meta, .modal p, .modal input, .modal select, .modal button, .modal .tx-row, .modal .all-tx, .modal .modal-toolbar {
+  color: var(--text);
+}
+
+/* Inputs/selects inside modal styled for contrast */
+.modal input[type="text"], .modal input[type="number"], .modal textarea, .modal select {
+  background: #ffffff; color: var(--text); border: 1px solid rgba(15,9,55,0.08); box-shadow: none;
+}
+
+/* Buttons in modals */
+.modal .btn-ghost { color: var(--text); border-color: rgba(15,9,55,0.08); }
+
+/* meta / small text */
+.modal .meta { color: rgba(31,41,55,0.85); font-size:13px; }
+
+/* modal inner rows */
+.modal .tx-row { padding:8px 0; border-bottom: 1px dashed rgba(15,9,55,0.04); display:flex; justify-content:space-between; align-items:center; }
+
+/* modal toolbar */
+.modal-toolbar { display:flex; justify-content:space-between; margin-bottom:16px; gap:10px; flex-wrap:wrap; }
+.filter-controls { display:flex; gap:8px; }
+.search-control input { padding:8px; border-radius: var(--radius-sm); border:1px solid rgba(15,9,55,0.06); width:180px; }
+.all-tx { max-height:420px; overflow:auto; }
+
+/* =========================
+   Budgets / progress / alerts
+   ========================= */
+.budgets .progress { background: rgba(15,9,55,0.04); height:10px; border-radius:var(--radius-sm); overflow:hidden; margin-top:6px; }
+.budgets .progress > i { display:block; height:100%; background: linear-gradient(90deg,#c084fc,#7c3aed); transition: width 0.5s ease; }
+
+.alerts .alert { padding:10px; border-radius:var(--radius-sm); margin-bottom:8px; animation: slideIn 0.3s ease; }
+@keyframes slideIn { from { opacity:0; transform:translateY(-10px);} to { opacity:1; transform:translateY(0);} }
+.alert.danger { background: linear-gradient(90deg,#fee2e2,#fecaca); color:#5f1a1a; }
+.alert.good { background: linear-gradient(90deg,#dcfce7,#bbf7d0); color:#064e3b; }
+.alert.info { background: linear-gradient(90deg,#ede9fe,#e9d5ff); color:#3b0764; }
+
+/* Footer */
+.app-footer { margin-top:40px; padding:20px; border-top:1px solid rgba(15,9,55,0.04); }
+.footer-content { max-width:1100px; margin:0 auto; display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:14px; }
+
+/* Toasts */
+.toast-container { position: fixed; bottom:20px; right:20px; z-index:100; display:flex; flex-direction:column; gap:10px; }
+.toast { background: var(--surface); border:1px solid var(--card-border); padding:12px 16px; border-radius:var(--radius-md); box-shadow:var(--shadow-lg); display:flex; align-items:center; gap:10px; max-width:300px; animation: toastIn 0.3s ease; }
+@keyframes toastIn { from { opacity:0; transform:translateX(100%);} to { opacity:1; transform:translateX(0);} }
+.toast.success { border-left:4px solid var(--good); }
+.toast.error { border-left:4px solid var(--danger); }
+.toast.info { border-left:4px solid var(--accent); }
+
+/* =========================
+   Responsive
+   ========================= */
+@media (max-width: 1000px) {
+  .cards { grid-template-columns: 1fr; }
+  .transactions { grid-template-columns: 1fr; }
+  .modal-toolbar { flex-direction: column; }
+  .filter-controls, .search-control { width: 100%; }
+  .search-control input { width: 100%; }
+}
+
+@media (max-width: 600px) {
+  .app-header { padding: 12px; }
+  .brand h1 { font-size: 15px; }
+  .logo { width:44px; height:44px; font-size:18px; }
+  .card { padding:12px; border-radius:var(--radius-md); }
+  .amount { font-size:18px; }
+  .stats-wrapper { flex-direction:column; }
+  .stat-grid { grid-template-columns:1fr; }
+  .chart-area { width:100%; }
+  .transactions { grid-template-columns:1fr; }
+  .balances { flex-direction:column; }
+  .actions { flex-direction:column; align-items:stretch; }
+  .actions .btn-ghost, .actions .btn-primary { width:100%; }
+  .footer-content { flex-direction:column; gap:10px; text-align:center; }
+}
+
+/* =========================
+   Dark mode adjustments
+   ========================= */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f0f23;
+    --surface: #1a1a2e;
+    --text: #f3f4f6;
+    --muted: #9ca3af;
+    --card-border: rgba(255,255,255,0.06);
+  }
+
+  body { background: linear-gradient(180deg,var(--bg) 0%, #151530 100%) !important; }
+
+  .row input[type="text"], .row input[type="number"], .row select {
+    background: rgba(255,255,255,0.05);
+    color: var(--text);
+    border-color: rgba(255,255,255,0.1);
+  }
+
+  .stat-item { background: linear-gradient(180deg,#1e1e3a,#1a1a2e); }
+}
+
+/* =========================
+   ÚLTIMA SECCIÓN:
+   FORZAR TODO EL TEXTO DENTRO DE MODALES A NEGRO
+   (reglas muy específicas y con !important para garantizar que
+   NINGÚN estilo heredado deje texto claro en los modales)
+   ========================= */
+
+/* Forzar color negro en todos los elementos dentro de modales */
+.modal,
+.modal * {
+  color: #000 !important;
+}
+
+/* Forzar placeholders también a negro (si los ves muy claros) */
+.modal ::placeholder,
+.modal ::-webkit-input-placeholder,
+.modal ::-moz-placeholder {
+  color: #000 !important;
+  opacity: 1 !important;
+}
+
+/* Forzar el color del borde/outline de botones/inputs si alguna regla los deja muy claros */
+.modal input, .modal select, .modal textarea {
+  color: #000 !important;
+  background: #fff !important;
+  border-color: rgba(15,9,55,0.12) !important;
+}
+
+/* Forzar color del texto de botones dentro del modal */
+.modal button {
+  color: #000 !important;
+}
+
+/* Forzar títulos H3 dentro del modal a negro */
+.modal h3 {
+  color: #000 !important;
+  font-weight: 700 !important;
+}
+
+/* Por si hay reglas inline con color igual a #f2f3f5, reemplazarlas */
+.modal [style*="#f2f3f5"], .modal [style*="rgb(242, 243, 245)"] {
+  color: #000 !important;
+}
+
+/* Regla final de respaldo para selectores concretos de modales (si existen por id) */
+#setup-modal, #view-all-modal, #settings-modal, #budgets-modal, #export-modal, #expenses-report-modal {
+  color: #000 !important;
+}
+
+/* Fin del archivo CSS. */
+/* Guardar este archivo como styles.css y recargar la página (CTRL+F5) para forzar cambios. */
