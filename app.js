@@ -68,7 +68,7 @@
     user: null,
     transactions: [],
     budgets: {},
-    settings: { nuEA: 8.5, lowThreshold: 20000, currency: 'COP' },
+    settings: { nuEA: 8.25, lowThreshold: 20000, currency: 'COP' }, // Actualizado a 8.25%
     meta: { lastInterestApplied: null, lastUpdated: nowISO() }
   };
 
@@ -260,7 +260,10 @@
     if (el.totalIncomes) el.totalIncomes.textContent = money(totals.incomes, currency);
     if (el.totalExpenses) el.totalExpenses.textContent = money(totals.expenses, currency);
     const rec = suggestSavings(totals); if (el.suggestedSavings) el.suggestedSavings.textContent = rec.text;
-    const projected = (balances.nu * (Number(state.settings.nuEA) / 100)); if (el.projectedInterest) el.projectedInterest.textContent = money(projected, currency);
+    
+    // Proyección de interés anual corregida
+    const projected = (balances.nu * (Number(state.settings.nuEA) / 100)); 
+    if (el.projectedInterest) el.projectedInterest.textContent = money(projected, currency);
 
     renderAlerts(balances, totals);
     renderBudgets(balances, totals);
@@ -350,116 +353,77 @@
 
   // ---------- Interest ----------
   function daysBetween(a, b) { return Math.floor((new Date(b) - new Date(a)) / (1000 * 60 * 60 * 24)); }
+  
   function computeAccruedInterest() {
-    if (!state.meta.lastInterestApplied) return 0; const balances = computeBalances(); const days = daysBetween(state.meta.lastInterestApplied, nowISO()); if (days <= 0) return 0;
-    const annualRate = Number(state.settings.nuEA || 0) / 100; return balances.nu * annualRate * (days / 365);
+    if (!state.meta.lastInterestApplied) return 0; 
+    const balances = computeBalances(); 
+    const days = daysBetween(state.meta.lastInterestApplied, nowISO()); 
+    if (days <= 0) return 0;
+
+    const annualRate = Number(state.settings.nuEA || 0) / 100; 
+    return balances.nu * annualRate * (days / 365);
   }
+
   function applyInterestNow() {
-    const interest = computeAccruedInterest(); if (interest <= 0) { showToast('No hay interés acumulado aún', 'info'); return; }
+    const interest = computeAccruedInterest(); 
+    if (interest <= 0) { showToast('No hay interés acumulado aún', 'info'); return; }
+    
     if (!confirm(`Aplicar interés acumulado ${money(interest, state.settings.currency)} ahora?`)) return;
-    const tx = { id: uid(), type: 'income', amount: Number(interest.toFixed(2)), date: nowISO(), account: 'nu', source: 'Interés EA', nuAllocated: Number(interest.toFixed(2)) };
-    state.transactions.push(tx); state.meta.lastInterestApplied = nowISO(); if (saveState(state)) showToast(`Interés de ${money(interest, state.settings.currency)} aplicado a Caja Nu`, 'success'); populateCategorySelects(); renderAll();
-  }
-
-  // New: smarter, event-aware interest applier
-  // - Uses lastInterestApplied as the starting timestamp
-  // - Iterates through transactions after that timestamp as "events"
-  // - For each interval between events, computes interest on the current NU balance for the exact fraction of days
-  // - Compounds interest by adding computed interest to the running balance (so interest earned between events also accrues interest)
-  // - Produces a single aggregated interest transaction at the end (date = now)
-  function applyInterestAccruedSmart() {
-    if (!state.user) return;
-    // Ensure lastInterestApplied exists
-    if (!state.meta.lastInterestApplied) {
-      state.meta.lastInterestApplied = state.user.createdAt || nowISO();
-      saveState(state);
-    }
-
-    const startTime = new Date(state.meta.lastInterestApplied);
-    const now = new Date();
-    if (now <= startTime) return; // nothing to do
-
-    const annualRate = Number(state.settings.nuEA || 0) / 100;
-
-    // Collect events (transactions) that happened after startTime, sorted ascending
-    const futureTxs = (state.transactions || [])
-      .slice()
-      .filter(t => new Date(t.date) > startTime)
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
-
-    // Get starting balances as of startTime, INCLUDING transactions at exactly startTime
-    const startBal = computeBalancesAt(startTime.toISOString(), true);
-    let currentNu = Number(startBal.nu || 0);
-
-    // Cursor moves from startTime through each tx.date up to now
-    let cursor = startTime;
-    let totalInterest = 0;
-
-    for (let i = 0; i <= futureTxs.length; i++) {
-      const nextTime = (i < futureTxs.length) ? new Date(futureTxs[i].date) : now;
-      if (nextTime > cursor) {
-        const dtDays = (nextTime - cursor) / (1000 * 60 * 60 * 24); // fractional days
-        if (dtDays > 0) {
-          // simple interest for the interval using currentNu; we compound by adding to currentNu
-          const interest = currentNu * annualRate * dtDays;
-          // Keep precision but ignore extremely small amounts
-          const interestRounded = Number(interest.toFixed(6));
-          if (interestRounded > 0) {
-            currentNu += interestRounded; // compound effect for subsequent intervals
-            totalInterest += interestRounded;
-          }
-        }
-        cursor = nextTime;
-      }
-      // Apply the effect of the event (transaction) at this point, so following intervals use the updated balance
-      if (i < futureTxs.length) {
-        const tx = futureTxs[i];
-        if (tx.type === 'income') {
-          let addedToNu = 0;
-          if (tx.nuAllocated && Number(tx.nuAllocated) > 0) {
-            addedToNu = Number(tx.nuAllocated);
-          } else {
-            if (tx.account === 'nu') addedToNu = Number(tx.amount);
-          }
-          currentNu += addedToNu;
-        } else if (tx.type === 'expense') {
-          if (tx.account === 'nu') currentNu -= Number(tx.amount);
-        }
-      }
-    }
-
-    // If totalInterest is negligible, still advance the lastInterestApplied to now to avoid reprocessing
-    if (totalInterest <= 0.004) {
-      state.meta.lastInterestApplied = now.toISOString();
-      saveState(state);
-      return;
-    }
-
-    // Create a single aggregated transaction for totalInterest
-    const totalRounded = Number(totalInterest.toFixed(2));
-    const tx = {
-      id: uid(),
-      type: 'income',
-      amount: totalRounded,
-      date: now.toISOString(),
-      account: 'nu',
-      source: 'Interés (acumulado)',
-      nuAllocated: totalRounded
+    
+    const tx = { 
+      id: uid(), 
+      type: 'income', 
+      amount: Number(interest.toFixed(2)), 
+      date: nowISO(), 
+      account: 'nu', 
+      source: 'Interés EA', 
+      nuAllocated: Number(interest.toFixed(2)) 
     };
-    state.transactions.push(tx);
-    state.meta.lastInterestApplied = now.toISOString();
-    saveState(state);
-    populateCategorySelects();
+    
+    state.transactions.push(tx); 
+    state.meta.lastInterestApplied = nowISO(); 
+    if (saveState(state)) showToast(`Interés de ${money(interest, state.settings.currency)} aplicado a Caja Nu`, 'success'); 
+    populateCategorySelects(); 
     renderAll();
-    showToast(`Interés aplicado: ${money(totalRounded, state.settings.currency)} (periodo actualizado)`, 'success');
   }
 
-  // Schedule: run smart applier on load and then periodically
-  function scheduleInterestChecker() {
-    try { applyInterestAccruedSmart(); } catch (e) { console.error('Error applying smart interest on init', e); }
-    setInterval(() => {
-      try { applyInterestAccruedSmart(); } catch (e) { console.error('Error applying smart interest', e); }
-    }, 1000 * 60 * 60); // every hour
+  // Cálculo de interés diario corregido
+  function calculateDailyInterest(balance, annualRate) {
+    // Método más preciso para interés compuesto diario
+    const dailyRate = Math.pow(1 + annualRate/100, 1/365) - 1;
+    return balance * dailyRate;
+  }
+
+  // Nueva función mejorada para aplicar intereses
+  function applyDailyInterest() {
+    if (!state.user || !state.meta.lastInterestApplied) return;
+    
+    const today = new Date().toISOString().split('T')[0];
+    const lastApplied = state.meta.lastInterestApplied.split('T')[0];
+    
+    // Solo aplicar si es un nuevo día
+    if (today === lastApplied) return;
+    
+    const balances = computeBalances();
+    const dailyInterest = calculateDailyInterest(balances.nu, state.settings.nuEA);
+    
+    if (dailyInterest > 0.001) { // Solo aplicar si es significativo
+      const interestTx = {
+        id: uid(),
+        type: 'income',
+        amount: Number(dailyInterest.toFixed(2)),
+        date: nowISO(),
+        account: 'nu',
+        source: 'Interés Diario Nu',
+        nuAllocated: Number(dailyInterest.toFixed(2))
+      };
+      
+      state.transactions.push(interestTx);
+      state.meta.lastInterestApplied = nowISO();
+      saveState(state);
+      
+      console.log(`Interés diario aplicado: ${money(dailyInterest, state.settings.currency)}`);
+    }
   }
 
   // ---------- Recommendations ----------
@@ -483,10 +447,10 @@
     [el.setupModal, el.viewAllModal, el.settingsModal, el.budgetsModal, $('export-modal'), $('expenses-report-modal')].forEach(m => { if (m) m.classList.add('hidden'); });
     hideOverlay();
   }
-  function showSetup() { showOverlay(); if (el.setupModal) el.setupModal.classList.remove('hidden'); if ($('user-nu')) $('user-nu').value = state.user ? state.user.nu : 0; if ($('user-nequi')) $('user-nequi').value = state.user ? state.user.nequi : 0; if ($('user-nu-ea')) $('user-nu-ea').value = state.settings.nuEA || 8.5; }
+  function showSetup() { showOverlay(); if (el.setupModal) el.setupModal.classList.remove('hidden'); if ($('user-nu')) $('user-nu').value = state.user ? state.user.nu : 0; if ($('user-nequi')) $('user-nequi').value = state.user ? state.user.nequi : 0; if ($('user-nu-ea')) $('user-nu-ea').value = state.settings.nuEA || 8.25; }
   function showViewAll() { showOverlay(); if (el.viewAllModal) el.viewAllModal.classList.remove('hidden'); const container = $('all-tx-container'); if (!container) return; container.innerHTML = ''; const typeFilter = $('tx-filter-type') ? $('tx-filter-type').value : 'all'; const accountFilter = $('tx-filter-account') ? $('tx-filter-account').value : 'all'; const searchFilter = $('tx-search') ? $('tx-search').value : ''; const filtered = filterTransactions(typeFilter, accountFilter, searchFilter).sort((a, b) => new Date(b.date) - new Date(a.date)); if (filtered.length === 0) { container.innerHTML = '<div class="meta">No hay transacciones que coincidan con los filtros.</div>'; return; } filtered.forEach(tx => { const div = document.createElement('div'); div.className = 'tx-row'; div.innerHTML = `<div><div><strong>${tx.type === 'income' ? '+' : '-'} ${money(tx.amount, state.settings.currency)}</strong> <span class="meta">| ${tx.account.toUpperCase()} | ${tx.date.slice(0,10)}</span></div><div class="meta">${tx.type === 'income' ? (tx.source || 'Ingreso') : (tx.category || 'Gasto')}</div></div><div style="display:flex;gap:6px;align-items:center"><button class="btn-ghost" data-action="revert" data-id="${tx.id}">Eliminar</button></div>`; container.appendChild(div); });
   }
-  function showSettings() { showOverlay(); if (el.settingsModal) el.settingsModal.classList.remove('hidden'); if ($('settings-nu-ea')) $('settings-nu-ea').value = state.settings.nuEA || 8.5; if ($('settings-low-threshold')) $('settings-low-threshold').value = state.settings.lowThreshold || 20000; if ($('settings-currency')) $('settings-currency').value = state.settings.currency || 'COP'; }
+  function showSettings() { showOverlay(); if (el.settingsModal) el.settingsModal.classList.remove('hidden'); if ($('settings-nu-ea')) $('settings-nu-ea').value = state.settings.nuEA || 8.25; if ($('settings-low-threshold')) $('settings-low-threshold').value = state.settings.lowThreshold || 20000; if ($('settings-currency')) $('settings-currency').value = state.settings.currency || 'COP'; }
   function showBudgets() {
     showOverlay(); if (!el.budgetsModal) return; el.budgetsModal.classList.remove('hidden');
     const list = $('budgets-form-list'); if (!list) return; list.innerHTML = ''; const keys = Object.keys(state.budgets); const cats = getCategories();
@@ -504,6 +468,22 @@
     });
   }
   function showExportModal() { showOverlay(); const m = $('export-modal'); if (m) m.classList.remove('hidden'); }
+
+  // ---------- Filter transactions ----------
+  function filterTransactions(typeFilter, accountFilter, searchFilter) {
+    return (state.transactions || []).filter(tx => {
+      if (typeFilter !== 'all' && tx.type !== typeFilter) return false;
+      if (accountFilter !== 'all' && tx.account !== accountFilter) return false;
+      if (searchFilter) {
+        const searchLower = searchFilter.toLowerCase();
+        const desc = (tx.description || '').toLowerCase();
+        const source = (tx.source || '').toLowerCase();
+        const category = (tx.category || '').toLowerCase();
+        if (!desc.includes(searchLower) && !source.includes(searchLower) && !category.includes(searchLower)) return false;
+      }
+      return true;
+    });
+  }
 
   // ---------- Events ----------
   if (el.txType) el.txType.addEventListener('change', e => { const isIncome = e.target.value === 'income'; if (el.incomeSourceRow) el.incomeSourceRow.style.display = isIncome ? 'block' : 'none'; if (el.expenseCategoryRow) el.expenseCategoryRow.style.display = isIncome ? 'none' : 'block'; if (el.depositToNu && el.depositToNu.parentElement) el.depositToNu.parentElement.style.display = isIncome ? 'block' : 'none'; populateCategorySelects(); });
@@ -594,7 +574,7 @@
   });
 
   if ($('setup-form')) $('setup-form').addEventListener('submit', e => {
-    e.preventDefault(); const name = $('user-name').value.trim(); const nu = Number($('user-nu').value || 0); const nequi = Number($('user-nequi').value || 0); const ea = Number($('user-nu-ea').value || 8.5);
+    e.preventDefault(); const name = $('user-name').value.trim(); const nu = Number($('user-nu').value || 0); const nequi = Number($('user-nequi').value || 0); const ea = Number($('user-nu-ea').value || 8.25);
     state.user = { name, nu, nequi, createdAt: nowISO() }; state.settings.nuEA = ea; if (!state.meta.lastInterestApplied) state.meta.lastInterestApplied = nowISO();
     if (saveState(state)) showToast('Configuración inicial guardada', 'success'); hideAllModals(); populateCategorySelects(); renderAll();
   });
@@ -611,11 +591,38 @@
 
   // ---------- Init ----------
   if (!state.meta.lastInterestApplied && state.user) state.meta.lastInterestApplied = nowISO();
-  window.addEventListener('load', () => { populateCategorySelects(); try { applyInterestAccruedSmart(); } catch (e) { console.error('Error applying smart interest on load', e); } const interest = computeAccruedInterest(); if (interest > 0.01) console.log(`Interés acumulado: ${money(interest, state.settings.currency)}`); renderAll(); scheduleInterestChecker(); });
+  
+  window.addEventListener('load', () => { 
+    populateCategorySelects(); 
+    
+    // Aplicar intereses automáticamente al cargar
+    try { 
+      applyDailyInterest(); 
+    } catch (e) { 
+      console.error('Error aplicando intereses al cargar', e); 
+    } 
+    
+    const interest = computeAccruedInterest(); 
+    if (interest > 0.01) {
+      console.log(`Interés acumulado: ${money(interest, state.settings.currency)}`);
+    } 
+    
+    renderAll(); 
+    
+    // Programar verificación diaria de intereses
+    setInterval(() => {
+      try {
+        applyDailyInterest();
+        renderAll();
+      } catch (e) {
+        console.error('Error en verificación de intereses', e);
+      }
+    }, 1000 * 60 * 60 * 24); // Cada 24 horas
+  });
 
   // ---------- Public API for debugging */
   window._banklar_state = state;
   window._banklar_applyInterest = applyInterestNow;
-  window._banklar_applyInterestSmart = applyInterestAccruedSmart;
+  window._banklar_applyDailyInterest = applyDailyInterest;
   window._banklar_exportData = exportData;
 })();
