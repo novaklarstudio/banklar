@@ -1,0 +1,163 @@
+:root{
+  --bg:#f9f7ff;          /* light background */
+  --surface:#ffffff;     /* card surface */
+  --accent:#7c3aed;      /* purple main */
+  --accent-2:#a78bfa;    /* lighter purple */
+  --text:#1f2937;        /* dark text */
+  --muted:#6b7280;       /* muted text */
+  --glass: rgba(124,58,237,0.06);
+  --balance-item-bg: rgba(255,255,255,0.18); /* increased opacity for readability */
+  --danger:#ef4444;
+  --good:#10b981;
+  --card-border: rgba(15,9,55,0.04);
+  font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  color-scheme: light;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background: linear-gradient(180deg, var(--bg) 0%, #f3f0ff 100%);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  padding-bottom:40px;
+}
+
+.app-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:14px 18px;
+  border-bottom:1px solid rgba(15,9,55,0.04);
+  background:transparent;
+}
+
+.brand{display:flex;gap:12px;align-items:center}
+.logo{
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  color:white;
+  width:48px;height:48px;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;
+  box-shadow:0 6px 18px rgba(124,58,237,0.12);
+}
+.app-header h1{margin:0;font-size:16px}
+.app-header p{margin:0;font-size:12px;color:var(--muted)}
+
+.container{
+  max-width:1100px;margin:20px auto;padding:0 14px;display:grid;grid-template-columns:1fr;gap:16px;
+}
+
+.cards{display:grid;grid-template-columns:1.3fr 1fr 0.9fr;gap:16px}
+.transactions{display:grid;grid-template-columns:1fr 360px;gap:16px}
+
+/* Cards */
+.card{
+  background:var(--surface);
+  border:1px solid var(--card-border);
+  padding:16px;border-radius:12px;
+  box-shadow: 0 6px 16px rgba(18,25,50,0.04);
+  overflow:visible;
+}
+.card h2{margin:0 0 10px 0;font-size:15px}
+
+/* BALANCE CARD: filled with purple */
+.balance-card{
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  color: white;
+  border: none;
+  box-shadow: 0 8px 30px rgba(124,58,237,0.12);
+}
+.balance-card .balances{display:flex;gap:12px}
+
+/* improved subcards readability */
+.balance-item{
+  flex:1;
+  background: var(--balance-item-bg);
+  padding:14px;border-radius:10px;text-align:left;
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06);
+}
+.balance-item .label{font-size:12px;color:rgba(255,255,255,0.95);font-weight:600}
+.amount{font-size:20px;font-weight:700;margin-top:8px;color:white}
+.small{font-size:12px;color:rgba(255,255,255,0.95);margin-top:6px}
+
+/* QUICK ADD */
+.quick-add form .row{margin-bottom:8px}
+.row label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+.row input[type="text"], .row input[type="number"], .row select{
+  width:100%;padding:10px;border-radius:10px;border:1px solid rgba(15,9,55,0.06);background:transparent;color:var(--text);
+}
+.actions{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:8px}
+.btn-primary{background:linear-gradient(90deg,var(--accent),var(--accent-2));border:none;color:white;padding:9px 14px;border-radius:10px;cursor:pointer;font-weight:600}
+.btn-ghost{background:transparent;border:1px solid rgba(15,9,55,0.06);color:var(--muted);padding:8px 10px;border-radius:10px;cursor:pointer}
+.center{text-align:center}
+
+/* transactions list */
+.tx-items{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px}
+.tx-item{display:flex;justify-content:space-between;align-items:center;padding:10px;background:linear-gradient(180deg, rgba(124,58,237,0.03), rgba(124,58,237,0.01));border-radius:8px}
+.tx-item .meta{font-size:12px;color:var(--muted)}
+.tx-item .actions{gap:6px}
+.tx-item .delete{background:transparent;border:none;color:var(--danger);cursor:pointer}
+
+/* STATS CARD */
+.stats-wrapper{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;flex:1;min-width:220px}
+.stat-item{
+  background:linear-gradient(180deg,#fff,#fbf7ff);
+  border:1px solid rgba(15,9,55,0.04);
+  padding:10px;border-radius:10px;
+  display:flex;flex-direction:column;gap:6px;
+}
+.stat-label{font-size:12px;color:var(--muted)}
+.stat-value{font-size:16px;font-weight:700;color:var(--text)}
+.stat-sub{font-size:12px;color:var(--muted)}
+
+/* specialized colors */
+.stat-income .stat-value{color:#059669} /* green for incomes */
+.stat-expense .stat-value{color:#ef4444} /* red for expenses */
+.stat-saved .stat-value{color:var(--accent)}
+.stat-interest .stat-value{color:#6b7280}
+
+/* chart area (now textual placeholder) */
+.chart-area{width:220px;min-width:180px}
+.chart-area .meta{font-size:13px;color:var(--muted);padding:6px}
+
+/* modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(15,9,55,0.08);z-index:40}
+.hidden{display:none}
+.modal{position:fixed;z-index:50;left:50%;top:50%;transform:translate(-50%,-50%);width:520px;max-width:95%;background:linear-gradient(180deg,#ffffff, #fbf7ff);border-radius:12px;padding:18px;border:1px solid rgba(124,58,237,0.06);box-shadow:0 20px 60px rgba(20,20,60,0.08)}
+
+.all-tx{max-height:420px;overflow:auto}
+.all-tx .tx-row{display:flex;justify-content:space-between;padding:10px;border-bottom:1px dashed rgba(15,9,55,0.02);align-items:center}
+
+/* budgets */
+.budgets .progress{background:rgba(15,9,55,0.04);height:10px;border-radius:8px;overflow:hidden;margin-top:6px}
+.budgets .progress > i{display:block;height:100%;background:linear-gradient(90deg,#c084fc,#7c3aed)}
+
+/* alerts */
+.alerts .alert{padding:10px;border-radius:8px;margin-bottom:8px}
+.alert.danger{background:linear-gradient(90deg,#fee2e2,#fecaca);color:#5f1a1a}
+.alert.good{background:linear-gradient(90deg,#dcfce7,#bbf7d0);color:#064e3b}
+.alert.info{background:linear-gradient(90deg,#ede9fe,#e9d5ff);color:#3b0764}
+
+/* responsive */
+@media (max-width:1000px){
+  .cards{grid-template-columns:1fr}
+  .transactions{grid-template-columns:1fr}
+}
+
+@media (max-width:600px){
+  .app-header{padding:12px}
+  .brand h1{font-size:15px}
+  .logo{width:44px;height:44px;font-size:18px}
+  .card{padding:12px;border-radius:10px}
+  .amount{font-size:18px}
+  .stats-wrapper{flex-direction:column}
+  .stat-grid{grid-template-columns:1fr}
+  .chart-area{width:100%}
+  .transactions{grid-template-columns:1fr}
+  .balances{flex-direction:column}
+  .actions{flex-direction:column;align-items:stretch}
+  .actions .btn-ghost, .actions .btn-primary{width:100%}
+} 
