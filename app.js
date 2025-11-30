@@ -1,6 +1,3 @@
-// app.js — Consolidado y limpiado
-// Conserva toda la lógica: almacenamiento, transacciones, presupuestos vinculados, modales, export, interés, reportes, toasts.
-
 (function () {
   // ---------- Helpers ----------
   const $ = id => document.getElementById(id);
@@ -196,6 +193,29 @@
     return { nu, nequi, total: nu + nequi };
   }
 
+  // Compute balances up to a specific ISO date (inclusive flag controls <= vs <)
+  function computeBalancesAt(dateISO, inclusive = true) {
+    const cutoff = new Date(dateISO);
+    let nu = state.user ? Number(state.user.nu || 0) : 0;
+    let nequi = state.user ? Number(state.user.nequi || 0) : 0;
+    const txs = (state.transactions || []).slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+    txs.forEach(tx => {
+      const txDate = new Date(tx.date);
+      if (inclusive ? txDate <= cutoff : txDate < cutoff) {
+        if (tx.type === 'income') {
+          if (tx.nuAllocated && tx.nuAllocated > 0) {
+            nu += Number(tx.nuAllocated);
+            const rest = Number(tx.amount) - Number(tx.nuAllocated);
+            if (rest > 0) nequi += rest;
+          } else { if (tx.account === 'nu') nu += Number(tx.amount); else nequi += Number(tx.amount); }
+        } else {
+          if (tx.account === 'nu') nu -= Number(tx.amount); else nequi -= Number(tx.amount);
+        }
+      }
+    });
+    return { nu, nequi, total: nu + nequi };
+  }
+
   // ---------- Rendering ----------
   function renderAll() {
     if (!state.user) { showSetup(); populateCategorySelects(); return; }
@@ -339,6 +359,107 @@
     if (!confirm(`Aplicar interés acumulado ${money(interest, state.settings.currency)} ahora?`)) return;
     const tx = { id: uid(), type: 'income', amount: Number(interest.toFixed(2)), date: nowISO(), account: 'nu', source: 'Interés EA', nuAllocated: Number(interest.toFixed(2)) };
     state.transactions.push(tx); state.meta.lastInterestApplied = nowISO(); if (saveState(state)) showToast(`Interés de ${money(interest, state.settings.currency)} aplicado a Caja Nu`, 'success'); populateCategorySelects(); renderAll();
+  }
+
+  // New: smarter, event-aware interest applier
+  // - Uses lastInterestApplied as the starting timestamp
+  // - Iterates through transactions after that timestamp as "events"
+  // - For each interval between events, computes interest on the current NU balance for the exact fraction of days
+  // - Compounds interest by adding computed interest to the running balance (so interest earned between events also accrues interest)
+  // - Produces a single aggregated interest transaction at the end (date = now)
+  function applyInterestAccruedSmart() {
+    if (!state.user) return;
+    // Ensure lastInterestApplied exists
+    if (!state.meta.lastInterestApplied) {
+      state.meta.lastInterestApplied = state.user.createdAt || nowISO();
+      saveState(state);
+    }
+
+    const startTime = new Date(state.meta.lastInterestApplied);
+    const now = new Date();
+    if (now <= startTime) return; // nothing to do
+
+    const annualRate = Number(state.settings.nuEA || 0) / 100;
+
+    // Collect events (transactions) that happened after startTime, sorted ascending
+    const futureTxs = (state.transactions || [])
+      .slice()
+      .filter(t => new Date(t.date) > startTime)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Get starting balances as of startTime, INCLUDING transactions at exactly startTime
+    const startBal = computeBalancesAt(startTime.toISOString(), true);
+    let currentNu = Number(startBal.nu || 0);
+
+    // Cursor moves from startTime through each tx.date up to now
+    let cursor = startTime;
+    let totalInterest = 0;
+
+    for (let i = 0; i <= futureTxs.length; i++) {
+      const nextTime = (i < futureTxs.length) ? new Date(futureTxs[i].date) : now;
+      if (nextTime > cursor) {
+        const dtDays = (nextTime - cursor) / (1000 * 60 * 60 * 24); // fractional days
+        if (dtDays > 0) {
+          // simple interest for the interval using currentNu; we compound by adding to currentNu
+          const interest = currentNu * annualRate * dtDays;
+          // Keep precision but ignore extremely small amounts
+          const interestRounded = Number(interest.toFixed(6));
+          if (interestRounded > 0) {
+            currentNu += interestRounded; // compound effect for subsequent intervals
+            totalInterest += interestRounded;
+          }
+        }
+        cursor = nextTime;
+      }
+      // Apply the effect of the event (transaction) at this point, so following intervals use the updated balance
+      if (i < futureTxs.length) {
+        const tx = futureTxs[i];
+        if (tx.type === 'income') {
+          let addedToNu = 0;
+          if (tx.nuAllocated && Number(tx.nuAllocated) > 0) {
+            addedToNu = Number(tx.nuAllocated);
+          } else {
+            if (tx.account === 'nu') addedToNu = Number(tx.amount);
+          }
+          currentNu += addedToNu;
+        } else if (tx.type === 'expense') {
+          if (tx.account === 'nu') currentNu -= Number(tx.amount);
+        }
+      }
+    }
+
+    // If totalInterest is negligible, still advance the lastInterestApplied to now to avoid reprocessing
+    if (totalInterest <= 0.004) {
+      state.meta.lastInterestApplied = now.toISOString();
+      saveState(state);
+      return;
+    }
+
+    // Create a single aggregated transaction for totalInterest
+    const totalRounded = Number(totalInterest.toFixed(2));
+    const tx = {
+      id: uid(),
+      type: 'income',
+      amount: totalRounded,
+      date: now.toISOString(),
+      account: 'nu',
+      source: 'Interés (acumulado)',
+      nuAllocated: totalRounded
+    };
+    state.transactions.push(tx);
+    state.meta.lastInterestApplied = now.toISOString();
+    saveState(state);
+    populateCategorySelects();
+    renderAll();
+    showToast(`Interés aplicado: ${money(totalRounded, state.settings.currency)} (periodo actualizado)`, 'success');
+  }
+
+  // Schedule: run smart applier on load and then periodically
+  function scheduleInterestChecker() {
+    try { applyInterestAccruedSmart(); } catch (e) { console.error('Error applying smart interest on init', e); }
+    setInterval(() => {
+      try { applyInterestAccruedSmart(); } catch (e) { console.error('Error applying smart interest', e); }
+    }, 1000 * 60 * 60); // every hour
   }
 
   // ---------- Recommendations ----------
@@ -490,10 +611,11 @@
 
   // ---------- Init ----------
   if (!state.meta.lastInterestApplied && state.user) state.meta.lastInterestApplied = nowISO();
-  window.addEventListener('load', () => { populateCategorySelects(); const interest = computeAccruedInterest(); if (interest > 0.01) console.log(`Interés acumulado: ${money(interest, state.settings.currency)}`); renderAll(); });
+  window.addEventListener('load', () => { populateCategorySelects(); try { applyInterestAccruedSmart(); } catch (e) { console.error('Error applying smart interest on load', e); } const interest = computeAccruedInterest(); if (interest > 0.01) console.log(`Interés acumulado: ${money(interest, state.settings.currency)}`); renderAll(); scheduleInterestChecker(); });
 
   // ---------- Public API for debugging */
   window._banklar_state = state;
   window._banklar_applyInterest = applyInterestNow;
+  window._banklar_applyInterestSmart = applyInterestAccruedSmart;
   window._banklar_exportData = exportData;
 })();
