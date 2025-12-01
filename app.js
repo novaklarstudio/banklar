@@ -649,10 +649,28 @@
     populateCategorySelects(); hideAllModals(); renderAll();
   });
 
+  // ✅ CORRECCIÓN: Ahora los usuarios NUEVOS también inicializan intereses automáticamente
   if ($('setup-form')) $('setup-form').addEventListener('submit', e => {
-    e.preventDefault(); const name = $('user-name').value.trim(); const nu = Number($('user-nu').value || 0); const nequi = Number($('user-nequi').value || 0); const ea = Number($('user-nu-ea').value || 8.25);
-    state.user = { name, nu, nequi, createdAt: nowISO() }; state.settings.nuEA = ea; if (!state.meta.lastInterestApplied) state.meta.lastInterestApplied = nowISO();
-    if (saveState(state)) showToast('Configuración inicial guardada', 'success'); hideAllModals(); populateCategorySelects(); renderAll();
+    e.preventDefault(); 
+    const name = $('user-name').value.trim(); 
+    const nu = Number($('user-nu').value || 0); 
+    const nequi = Number($('user-nequi').value || 0); 
+    const ea = Number($('user-nu-ea').value || 8.25);
+    
+    state.user = { name, nu, nequi, createdAt: nowISO() }; 
+    state.settings.nuEA = ea; 
+    
+    // ✅ INICIALIZAR INTERESES PARA USUARIO NUEVO
+    if (!state.meta.lastInterestApplied) {
+      state.meta.lastInterestApplied = nowISO();
+      // Aplicar primer interés inmediatamente
+      aplicarInteresDiarioInmediato();
+    }
+    
+    if (saveState(state)) showToast('Configuración inicial guardada', 'success'); 
+    hideAllModals(); 
+    populateCategorySelects(); 
+    renderAll();
   });
 
   if (el.refreshBalances) el.refreshBalances.addEventListener('click', () => { renderAll(); showToast('Balances actualizados', 'success'); });
