@@ -68,7 +68,7 @@
     user: null,
     transactions: [],
     budgets: {},
-    settings: { nuEA: 8.25, lowThreshold: 20000, currency: 'COP' }, // Actualizado a 8.25%
+    settings: { nuEA: 8.25, lowThreshold: 20000, currency: 'COP' },
     meta: { lastInterestApplied: null, lastUpdated: nowISO() }
   };
 
@@ -394,20 +394,74 @@
     return balance * dailyRate;
   }
 
+  // ========== SISTEMA DE INICIALIZACIÓN DE INTERESES ==========
+  function inicializarSistemaIntereses() {
+    // Solo inicializar si el usuario existe pero no hay fecha de último interés
+    if (state.user && !state.meta.lastInterestApplied) {
+      console.log("🔄 Inicializando sistema de intereses por primera vez...");
+      
+      // Usar la fecha de creación del usuario o fecha actual
+      const fechaInicio = state.user.createdAt || nowISO();
+      state.meta.lastInterestApplied = fechaInicio;
+      saveState(state);
+      
+      console.log("✅ Sistema de intereses inicializado con fecha:", fechaInicio);
+      
+      // Aplicar interés inmediato para el día actual
+      aplicarInteresDiarioInmediato();
+      return true;
+    }
+    return false;
+  }
+
+  function aplicarInteresDiarioInmediato() {
+    const saldoNu = computeBalances().nu;
+    const tasa = state.settings.nuEA;
+    const interesDiario = calculateDailyInterest(saldoNu, tasa);
+    
+    if (interesDiario > 0.01) {
+      const txInteres = {
+        id: uid(),
+        type: 'income',
+        amount: Number(interesDiario.toFixed(2)),
+        date: nowISO(),
+        account: 'nu',
+        source: 'Interés Diario Nu',
+        nuAllocated: Number(interesDiario.toFixed(2))
+      };
+      
+      state.transactions.push(txInteres);
+      state.meta.lastInterestApplied = nowISO();
+      saveState(state);
+      
+      console.log("💰 Primer interés aplicado:", interesDiario);
+      showToast(`¡Sistema de intereses activado! Primer interés: $${interesDiario.toFixed(2)}`, 'success');
+      
+      return true;
+    }
+    return false;
+  }
+
   // Nueva función mejorada para aplicar intereses
   function applyDailyInterest() {
-    if (!state.user || !state.meta.lastInterestApplied) return;
+    if (!state.user) return;
     
-    const today = new Date().toISOString().split('T')[0];
-    const lastApplied = state.meta.lastInterestApplied.split('T')[0];
+    // Si no hay fecha de último interés, inicializar el sistema
+    if (!state.meta.lastInterestApplied) {
+      inicializarSistemaIntereses();
+      return;
+    }
+    
+    const hoy = new Date().toISOString().split('T')[0];
+    const ultimoInteres = state.meta.lastInterestApplied.split('T')[0];
     
     // Solo aplicar si es un nuevo día
-    if (today === lastApplied) return;
+    if (hoy === ultimoInteres) return;
     
     const balances = computeBalances();
     const dailyInterest = calculateDailyInterest(balances.nu, state.settings.nuEA);
     
-    if (dailyInterest > 0.001) { // Solo aplicar si es significativo
+    if (dailyInterest > 0.001) {
       const interestTx = {
         id: uid(),
         type: 'income',
@@ -422,9 +476,31 @@
       state.meta.lastInterestApplied = nowISO();
       saveState(state);
       
-      console.log(`Interés diario aplicado: ${money(dailyInterest, state.settings.currency)}`);
+      console.log(`💰 Interés diario aplicado: ${money(dailyInterest, state.settings.currency)}`);
+      showToast(`Interés diario aplicado: $${dailyInterest.toFixed(2)}`, 'success');
     }
   }
+
+  // Función de emergencia para activar intereses manualmente
+  window._banklar_activarIntereses = function() {
+    if (!state.user) {
+      showToast('Primero configura tu perfil', 'error');
+      return false;
+    }
+    
+    if (!state.meta.lastInterestApplied) {
+      const resultado = inicializarSistemaIntereses();
+      if (resultado) {
+        renderAll();
+        alert('🎉 ¡Sistema de intereses activado!\n\nA partir de ahora, los intereses se calcularán automáticamente cada día.');
+        return true;
+      }
+    } else {
+      alert('✅ El sistema de intereses ya estaba activo');
+      return true;
+    }
+    return false;
+  };
 
   // ---------- Recommendations ----------
   function suggestSavings(totals) {
@@ -595,6 +671,13 @@
   window.addEventListener('load', () => { 
     populateCategorySelects(); 
     
+    // INICIALIZAR SISTEMA DE INTERESES - ESTO ES LO NUEVO
+    try { 
+      inicializarSistemaIntereses();
+    } catch (e) { 
+      console.error('Error inicializando sistema de intereses', e); 
+    }
+    
     // Aplicar intereses automáticamente al cargar
     try { 
       applyDailyInterest(); 
@@ -624,5 +707,6 @@
   window._banklar_state = state;
   window._banklar_applyInterest = applyInterestNow;
   window._banklar_applyDailyInterest = applyDailyInterest;
+  window._banklar_activarIntereses = _banklar_activarIntereses;
   window._banklar_exportData = exportData;
 })();
