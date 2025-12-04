@@ -46,10 +46,10 @@
       const headers = ['Fecha', 'Tipo', 'Monto', 'Cuenta', 'Categoría/Origen', 'Descripción'];
       const rows = (s.transactions || []).map(tx => [
         tx.date.split('T')[0],
-        tx.type === 'income' ? 'Ingreso' : 'Gasto',
+        tx.type === 'income' ? 'Ingreso' : tx.type === 'transfer' ? 'Transferencia' : 'Gasto',
         tx.amount,
         tx.account === 'nu' ? 'Caja Nu' : 'Nequi',
-        tx.type === 'income' ? (tx.source || 'Ingreso') : (tx.category || 'Gasto'),
+        tx.type === 'income' ? (tx.source || 'Ingreso') : (tx.type === 'transfer' ? 'Transferencia' : (tx.category || 'Gasto')),
         tx.description || ''
       ]);
       data = [headers, ...rows].map(row => row.map(f => `"${String(f).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -86,6 +86,10 @@
     txType: $('tx-type'),
     incomeSourceRow: $('income-source-row'),
     expenseCategoryRow: $('expense-category-row'),
+    transferSection: $('transfer-section'),
+    transferFrom: $('transfer-from'),
+    transferTo: $('transfer-to'),
+    accountSection: $('account-section'),
     incomeSource: $('income-source'),
     expenseCategory: $('expense-category'),
     txAmount: $('tx-amount'),
@@ -109,7 +113,13 @@
     viewAllModal: $('view-all-modal'),
     settingsModal: $('settings-modal'),
     budgetsModal: $('budgets-modal'),
+    transferModal: $('transfer-modal'),
+    transferForm: $('transfer-form'),
+    transferAmount: $('transfer-amount'),
+    nuAvailable: $('nu-available'),
     refreshBalances: $('refresh-balances'),
+    btnTransferNuNequi: $('transfer-nu-nequi'),
+    btnCancelTransfer: $('btn-cancel-transfer'),
     btnExpensesReport: $('btn-expenses-report'),
     expensesReportModal: $('expenses-report-modal')
   };
@@ -144,9 +154,13 @@
 
   // ---------- Transactions / totals ----------
   function calcTotals() {
-    let incomes = 0, expenses = 0;
-    (state.transactions || []).forEach(t => { if (t.type === 'income') incomes += Number(t.amount); else expenses += Number(t.amount); });
-    return { incomes, expenses };
+    let incomes = 0, expenses = 0, transfers = 0;
+    (state.transactions || []).forEach(t => { 
+      if (t.type === 'income') incomes += Number(t.amount); 
+      else if (t.type === 'expense') expenses += Number(t.amount);
+      else if (t.type === 'transfer') transfers += Number(t.amount);
+    });
+    return { incomes, expenses, transfers };
   }
 
   function calcExpensesByCategory() {
@@ -174,6 +188,79 @@
     }
   }
 
+  // ---------- FUNCIÓN DE TRANSFERENCIA ----------
+  function transferMoney(fromAccount, toAccount, amount, description = '') {
+    if (!state.user) {
+      showToast('Primero debes configurar tu perfil', 'error');
+      return false;
+    }
+
+    const balances = computeBalances();
+    const available = fromAccount === 'nu' ? balances.nu : balances.nequi;
+    
+    if (amount <= 0) {
+      showToast('El monto debe ser mayor a 0', 'error');
+      return false;
+    }
+
+    if (amount > available) {
+      showToast(`Saldo insuficiente en ${fromAccount === 'nu' ? 'Caja Nu' : 'Nequi'}`, 'error');
+      return false;
+    }
+
+    if (fromAccount === toAccount) {
+      showToast('No puedes transferir a la misma cuenta', 'error');
+      return false;
+    }
+
+    // Crear la transacción de transferencia
+    const tx = {
+      id: uid(),
+      type: 'transfer',
+      amount: Number(amount.toFixed(2)),
+      date: nowISO(),
+      fromAccount: fromAccount,
+      toAccount: toAccount,
+      description: description || `Transferencia ${fromAccount} → ${toAccount}`,
+      source: 'Transferencia',
+      category: 'Transferencia'
+    };
+
+    // También registrar el efecto en los balances creando dos transacciones implícitas
+    const expenseTx = {
+      id: uid(),
+      type: 'expense',
+      amount: Number(amount.toFixed(2)),
+      date: nowISO(),
+      account: fromAccount,
+      category: 'Transferencia',
+      description: `Transferido a ${toAccount === 'nu' ? 'Caja Nu' : 'Nequi'}`
+    };
+
+    const incomeTx = {
+      id: uid(),
+      type: 'income',
+      amount: Number(amount.toFixed(2)),
+      date: nowISO(),
+      account: toAccount,
+      source: 'Transferencia',
+      description: `Recibido de ${fromAccount === 'nu' ? 'Caja Nu' : 'Nequi'}`,
+      nuAllocated: toAccount === 'nu' ? Number(amount.toFixed(2)) : 0
+    };
+
+    state.transactions.push(tx);
+    state.transactions.push(expenseTx);
+    state.transactions.push(incomeTx);
+    
+    if (saveState(state)) {
+      showToast(`Transferencia exitosa: ${money(amount, state.settings.currency)} de ${fromAccount === 'nu' ? 'Caja Nu' : 'Nequi'} a ${toAccount === 'nu' ? 'Caja Nu' : 'Nequi'}`, 'success');
+    }
+    
+    populateCategorySelects(); 
+    renderAll();
+    return true;
+  }
+
   // ---------- Balances ----------
   function computeBalances() {
     let nu = state.user ? Number(state.user.nu || 0) : 0;
@@ -186,9 +273,10 @@
           const rest = Number(tx.amount) - Number(tx.nuAllocated);
           if (rest > 0) nequi += rest;
         } else { if (tx.account === 'nu') nu += Number(tx.amount); else nequi += Number(tx.amount); }
-      } else {
+      } else if (tx.type === 'expense') {
         if (tx.account === 'nu') nu -= Number(tx.amount); else nequi -= Number(tx.amount);
       }
+      // Las transferencias ya están representadas por las transacciones de expense/income
     });
     return { nu, nequi, total: nu + nequi };
   }
@@ -208,7 +296,7 @@
             const rest = Number(tx.amount) - Number(tx.nuAllocated);
             if (rest > 0) nequi += rest;
           } else { if (tx.account === 'nu') nu += Number(tx.amount); else nequi += Number(tx.amount); }
-        } else {
+        } else if (tx.type === 'expense') {
           if (tx.account === 'nu') nu -= Number(tx.amount); else nequi -= Number(tx.amount);
         }
       }
@@ -232,20 +320,40 @@
       el.balanceStatus.style.color = balances.total < low ? '#ef4444' : '#10b981';
     }
 
+    // Actualizar saldo disponible en modal de transferencia
+    if (el.nuAvailable) {
+      el.nuAvailable.textContent = money(balances.nu, currency);
+    }
+
     // last transactions
     if (el.lastTxList) {
       el.lastTxList.innerHTML = '';
       const sorted = (state.transactions || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
-      const last3 = sorted.slice(0, 3);
-      if (last3.length === 0) {
+      const last5 = sorted.slice(0, 5);
+      if (last5.length === 0) {
         const li = document.createElement('li'); li.className = 'tx-item'; li.innerHTML = '<div class="meta">No hay transacciones recientes</div>'; el.lastTxList.appendChild(li);
       } else {
-        last3.forEach(tx => {
+        last5.forEach(tx => {
           const li = document.createElement('li'); li.className = 'tx-item';
+          
+          let txTypeSymbol = '';
+          let txTypeText = '';
+          
+          if (tx.type === 'income') {
+            txTypeSymbol = '+';
+            txTypeText = 'Ingreso';
+          } else if (tx.type === 'expense') {
+            txTypeSymbol = '-';
+            txTypeText = 'Gasto';
+          } else if (tx.type === 'transfer') {
+            txTypeSymbol = '↔';
+            txTypeText = 'Transferencia';
+          }
+          
           li.innerHTML = `
             <div>
-              <div><strong>${tx.type === 'income' ? '+' : '-'} ${money(tx.amount, currency)}</strong> <span class="meta">| ${tx.account.toUpperCase()} | ${tx.date.slice(0,10)}</span></div>
-              <div class="meta">${tx.type === 'income' ? (tx.source || 'Ingreso') : (tx.category || 'Gasto')}</div>
+              <div><strong>${txTypeSymbol} ${money(tx.amount, currency)}</strong> <span class="meta">| ${txTypeText} | ${tx.date.slice(0,10)}</span></div>
+              <div class="meta">${tx.type === 'income' ? (tx.source || 'Ingreso') : tx.type === 'transfer' ? `De ${tx.fromAccount} a ${tx.toAccount}` : (tx.category || 'Gasto')}</div>
             </div>
             <div class="actions">
               <button class="btn-ghost" data-id="${tx.id}" data-action="view">Ver</button>
@@ -520,13 +628,58 @@
   function showOverlay() { if (el.modalOverlay) el.modalOverlay.classList.remove('hidden'); }
   function hideOverlay() { if (el.modalOverlay) el.modalOverlay.classList.add('hidden'); }
   function hideAllModals() {
-    [el.setupModal, el.viewAllModal, el.settingsModal, el.budgetsModal, $('export-modal'), $('expenses-report-modal')].forEach(m => { if (m) m.classList.add('hidden'); });
+    [el.setupModal, el.viewAllModal, el.settingsModal, el.budgetsModal, $('export-modal'), $('expenses-report-modal'), el.transferModal].forEach(m => { if (m) m.classList.add('hidden'); });
     hideOverlay();
   }
+
   function showSetup() { showOverlay(); if (el.setupModal) el.setupModal.classList.remove('hidden'); if ($('user-nu')) $('user-nu').value = state.user ? state.user.nu : 0; if ($('user-nequi')) $('user-nequi').value = state.user ? state.user.nequi : 0; if ($('user-nu-ea')) $('user-nu-ea').value = state.settings.nuEA || 8.25; }
-  function showViewAll() { showOverlay(); if (el.viewAllModal) el.viewAllModal.classList.remove('hidden'); const container = $('all-tx-container'); if (!container) return; container.innerHTML = ''; const typeFilter = $('tx-filter-type') ? $('tx-filter-type').value : 'all'; const accountFilter = $('tx-filter-account') ? $('tx-filter-account').value : 'all'; const searchFilter = $('tx-search') ? $('tx-search').value : ''; const filtered = filterTransactions(typeFilter, accountFilter, searchFilter).sort((a, b) => new Date(b.date) - new Date(a.date)); if (filtered.length === 0) { container.innerHTML = '<div class="meta">No hay transacciones que coincidan con los filtros.</div>'; return; } filtered.forEach(tx => { const div = document.createElement('div'); div.className = 'tx-row'; div.innerHTML = `<div><div><strong>${tx.type === 'income' ? '+' : '-'} ${money(tx.amount, state.settings.currency)}</strong> <span class="meta">| ${tx.account.toUpperCase()} | ${tx.date.slice(0,10)}</span></div><div class="meta">${tx.type === 'income' ? (tx.source || 'Ingreso') : (tx.category || 'Gasto')}</div></div><div style="display:flex;gap:6px;align-items:center"><button class="btn-ghost" data-action="revert" data-id="${tx.id}">Eliminar</button></div>`; container.appendChild(div); });
+
+  function showViewAll() { 
+    showOverlay(); 
+    if (el.viewAllModal) el.viewAllModal.classList.remove('hidden'); 
+    const container = $('all-tx-container'); 
+    if (!container) return; 
+    container.innerHTML = ''; 
+    const typeFilter = $('tx-filter-type') ? $('tx-filter-type').value : 'all'; 
+    const accountFilter = $('tx-filter-account') ? $('tx-filter-account').value : 'all'; 
+    const searchFilter = $('tx-search') ? $('tx-search').value : ''; 
+    const filtered = filterTransactions(typeFilter, accountFilter, searchFilter).sort((a, b) => new Date(b.date) - new Date(a.date)); 
+    if (filtered.length === 0) { 
+      container.innerHTML = '<div class="meta">No hay transacciones que coincidan con los filtros.</div>'; 
+      return; 
+    } 
+    filtered.forEach(tx => { 
+      const div = document.createElement('div'); 
+      div.className = 'tx-row'; 
+      
+      let txTypeSymbol = '';
+      let txTypeText = '';
+      
+      if (tx.type === 'income') {
+        txTypeSymbol = '+';
+        txTypeText = 'Ingreso';
+      } else if (tx.type === 'expense') {
+        txTypeSymbol = '-';
+        txTypeText = 'Gasto';
+      } else if (tx.type === 'transfer') {
+        txTypeSymbol = '↔';
+        txTypeText = 'Transferencia';
+      }
+      
+      div.innerHTML = `
+        <div>
+          <div><strong>${txTypeSymbol} ${money(tx.amount, state.settings.currency)}</strong> <span class="meta">| ${txTypeText} | ${tx.date.slice(0,10)}</span></div>
+          <div class="meta">${tx.type === 'income' ? (tx.source || 'Ingreso') : tx.type === 'transfer' ? `De ${tx.fromAccount} a ${tx.toAccount}` : (tx.category || 'Gasto')}</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn-ghost" data-action="revert" data-id="${tx.id}">Eliminar</button>
+        </div>`; 
+      container.appendChild(div); 
+    });
   }
+
   function showSettings() { showOverlay(); if (el.settingsModal) el.settingsModal.classList.remove('hidden'); if ($('settings-nu-ea')) $('settings-nu-ea').value = state.settings.nuEA || 8.25; if ($('settings-low-threshold')) $('settings-low-threshold').value = state.settings.lowThreshold || 20000; if ($('settings-currency')) $('settings-currency').value = state.settings.currency || 'COP'; }
+
   function showBudgets() {
     showOverlay(); if (!el.budgetsModal) return; el.budgetsModal.classList.remove('hidden');
     const list = $('budgets-form-list'); if (!list) return; list.innerHTML = ''; const keys = Object.keys(state.budgets); const cats = getCategories();
@@ -543,13 +696,41 @@
       div.appendChild(selHtml); div.appendChild(amtInput); div.appendChild(btn); list.appendChild(div); i++;
     });
   }
+
   function showExportModal() { showOverlay(); const m = $('export-modal'); if (m) m.classList.remove('hidden'); }
+
+  // ---------- Mostrar modal de transferencia ----------
+  function showTransferModal() {
+    if (!state.user) {
+      showToast('Primero debes configurar tu perfil', 'error');
+      return;
+    }
+    
+    showOverlay(); 
+    if (el.transferModal) {
+      el.transferModal.classList.remove('hidden');
+      // Actualizar saldo disponible
+      const balances = computeBalances();
+      if (el.nuAvailable) {
+        el.nuAvailable.textContent = money(balances.nu, state.settings.currency);
+      }
+      // Poner foco en el campo de monto
+      if (el.transferAmount) {
+        el.transferAmount.value = '';
+        setTimeout(() => el.transferAmount.focus(), 100);
+      }
+    }
+  }
 
   // ---------- Filter transactions ----------
   function filterTransactions(typeFilter, accountFilter, searchFilter) {
     return (state.transactions || []).filter(tx => {
       if (typeFilter !== 'all' && tx.type !== typeFilter) return false;
-      if (accountFilter !== 'all' && tx.account !== accountFilter) return false;
+      if (accountFilter !== 'all' && tx.account !== accountFilter) {
+        // Para transferencias, verificar ambas cuentas
+        if (tx.type !== 'transfer') return false;
+        if (tx.fromAccount !== accountFilter && tx.toAccount !== accountFilter) return false;
+      }
       if (searchFilter) {
         const searchLower = searchFilter.toLowerCase();
         const desc = (tx.description || '').toLowerCase();
@@ -562,26 +743,127 @@
   }
 
   // ---------- Events ----------
-  if (el.txType) el.txType.addEventListener('change', e => { const isIncome = e.target.value === 'income'; if (el.incomeSourceRow) el.incomeSourceRow.style.display = isIncome ? 'block' : 'none'; if (el.expenseCategoryRow) el.expenseCategoryRow.style.display = isIncome ? 'none' : 'block'; if (el.depositToNu && el.depositToNu.parentElement) el.depositToNu.parentElement.style.display = isIncome ? 'block' : 'none'; populateCategorySelects(); });
-  if (el.depositToNu) el.depositToNu.addEventListener('change', e => { if (el.nuSplitRow) el.nuSplitRow.style.display = e.target.checked ? 'block' : 'none'; });
+  if (el.txType) {
+    el.txType.addEventListener('change', e => { 
+      const type = e.target.value;
+      const isIncome = type === 'income';
+      const isExpense = type === 'expense';
+      const isTransfer = type === 'transfer';
+      
+      if (el.incomeSourceRow) el.incomeSourceRow.style.display = isIncome ? 'block' : 'none';
+      if (el.expenseCategoryRow) el.expenseCategoryRow.style.display = isExpense ? 'block' : 'none';
+      if (el.transferSection) el.transferSection.style.display = isTransfer ? 'block' : 'none';
+      if (el.accountSection) el.accountSection.style.display = isTransfer ? 'none' : 'block';
+      if (el.depositToNu && el.depositToNu.parentElement) el.depositToNu.parentElement.style.display = isIncome ? 'block' : 'none';
+      
+      // Configurar opciones de transferencia
+      if (isTransfer && el.transferFrom && el.transferTo) {
+        // Por defecto: de Nu a Nequi
+        el.transferFrom.value = 'nu';
+        el.transferTo.value = 'nequi';
+      }
+      
+      populateCategorySelects(); 
+    });
+  }
 
   if (el.txForm) {
     el.txForm.addEventListener('submit', e => {
       e.preventDefault();
-      const type = el.txType.value; const amount = Number(el.txAmount.value || 0);
+      const type = el.txType.value; 
+      const amount = Number(el.txAmount.value || 0);
+      
       if (amount <= 0) { showToast('El monto debe ser mayor a 0', 'error'); return; }
-      const account = el.txAccount.value; const date = nowISO();
+      
+      const date = nowISO();
+      
       if (type === 'income') {
-        const source = el.incomeSource.value; const depositNU = el.depositToNu && el.depositToNu.checked; let nuAllocated = 0;
-        if (depositNU) { const split = Number(el.nuSplitAmount.value || 0); nuAllocated = (split > 0 && split < amount) ? split : amount; }
-        const tx = { id: uid(), type: 'income', amount: Number(amount.toFixed(2)), date, account, source, nuAllocated: nuAllocated > 0 ? Number(nuAllocated.toFixed(2)) : 0 };
+        const source = el.incomeSource.value; 
+        const depositNU = el.depositToNu && el.depositToNu.checked; 
+        let nuAllocated = 0;
+        const account = el.txAccount.value;
+        
+        if (depositNU) { 
+          const split = Number(el.nuSplitAmount.value || 0); 
+          nuAllocated = (split > 0 && split < amount) ? split : amount; 
+        }
+        
+        const tx = { 
+          id: uid(), 
+          type: 'income', 
+          amount: Number(amount.toFixed(2)), 
+          date, 
+          account, 
+          source, 
+          nuAllocated: nuAllocated > 0 ? Number(nuAllocated.toFixed(2)) : 0 
+        };
         addTransaction(tx);
-      } else {
+      } else if (type === 'expense') {
         const category = el.expenseCategory ? el.expenseCategory.value : 'Otros';
-        const tx = { id: uid(), type: 'expense', amount: Number(amount.toFixed(2)), date, account, category };
+        const account = el.txAccount.value;
+        const tx = { 
+          id: uid(), 
+          type: 'expense', 
+          amount: Number(amount.toFixed(2)), 
+          date, 
+          account, 
+          category 
+        };
         addTransaction(tx);
+      } else if (type === 'transfer') {
+        const fromAccount = el.transferFrom ? el.transferFrom.value : 'nu';
+        const toAccount = el.transferTo ? el.transferTo.value : 'nequi';
+        
+        // Usar la función de transferencia
+        transferMoney(fromAccount, toAccount, amount, 'Transferencia entre cuentas');
       }
-      el.txForm.reset(); if (el.nuSplitRow) el.nuSplitRow.style.display = 'none';
+      
+      el.txForm.reset(); 
+      if (el.nuSplitRow) el.nuSplitRow.style.display = 'none';
+      if (el.transferSection) el.transferSection.style.display = 'none';
+      if (el.accountSection) el.accountSection.style.display = 'block';
+      el.txType.value = 'income';
+    });
+  }
+
+  // Evento para el botón de transferencia rápida
+  if (el.btnTransferNuNequi) {
+    el.btnTransferNuNequi.addEventListener('click', showTransferModal);
+  }
+
+  // Evento para el formulario de transferencia modal
+  if (el.transferForm) {
+    el.transferForm.addEventListener('submit', function(e) {
+      e.preventDefault();
+      
+      const amount = Number(el.transferAmount.value || 0);
+      const balances = computeBalances();
+      
+      if (amount <= 0) {
+        showToast('El monto debe ser mayor a 0', 'error');
+        return;
+      }
+      
+      if (amount > balances.nu) {
+        showToast(`Saldo insuficiente en Caja Nu. Disponible: ${money(balances.nu, state.settings.currency)}`, 'error');
+        return;
+      }
+      
+      // Realizar la transferencia
+      const success = transferMoney('nu', 'nequi', amount, 'Transferencia rápida Nu → Nequi');
+      
+      if (success) {
+        hideAllModals();
+        el.transferForm.reset();
+      }
+    });
+  }
+
+  // Evento para cancelar transferencia
+  if (el.btnCancelTransfer) {
+    el.btnCancelTransfer.addEventListener('click', function() {
+      hideAllModals();
+      el.transferForm.reset();
     });
   }
 
@@ -590,18 +872,39 @@
     if (!action) return;
     if (action === 'del' || action === 'revert') {
       if (confirm('¿Eliminar transacción? Esto revertirá su efecto.')) {
-        removeTransactionById(id); if (action === 'revert') showViewAll();
+        removeTransactionById(id); 
+        if (action === 'revert') showViewAll();
       }
     } else if (action === 'view') {
-      const tx = state.transactions.find(t => t.id === id); if (!tx) return;
-      alert(`Transacción:\nID: ${tx.id}\nTipo: ${tx.type}\nMonto: ${money(tx.amount, state.settings.currency)}\nCuenta: ${tx.account}\n${tx.type === 'income' ? 'Origen: ' + tx.source : 'Categoría: ' + tx.category}`);
+      const tx = state.transactions.find(t => t.id === id); 
+      if (!tx) return;
+      
+      let details = `Transacción:\nID: ${tx.id}\nTipo: ${tx.type}\nMonto: ${money(tx.amount, state.settings.currency)}\nFecha: ${tx.date.slice(0,10)}`;
+      
+      if (tx.type === 'income') {
+        details += `\nCuenta: ${tx.account}\nOrigen: ${tx.source}`;
+        if (tx.nuAllocated > 0) details += `\nAsignado a Nu: ${money(tx.nuAllocated, state.settings.currency)}`;
+      } else if (tx.type === 'expense') {
+        details += `\nCuenta: ${tx.account}\nCategoría: ${tx.category}`;
+      } else if (tx.type === 'transfer') {
+        details += `\nDe: ${tx.fromAccount}\nA: ${tx.toAccount}`;
+      }
+      
+      if (tx.description) details += `\nDescripción: ${tx.description}`;
+      
+      alert(details);
     }
   });
 
   if (el.btnViewAll) el.btnViewAll.addEventListener('click', showViewAll);
   if (el.btnViewAll2) el.btnViewAll2.addEventListener('click', showViewAll);
 
-  if ($('tx-filter-type')) { $('tx-filter-type').addEventListener('change', showViewAll); $('tx-filter-account').addEventListener('change', showViewAll); $('tx-search').addEventListener('input', debounce(showViewAll, 300)); }
+  if ($('tx-filter-type')) { 
+    $('tx-filter-type').addEventListener('change', showViewAll); 
+    $('tx-filter-account').addEventListener('change', showViewAll); 
+    $('tx-search').addEventListener('input', debounce(showViewAll, 300)); 
+  }
+  
   on('close-all-tx', 'click', hideAllModals);
   if (el.modalOverlay) el.modalOverlay.addEventListener('click', hideAllModals);
   if (el.btnSettings) el.btnSettings.addEventListener('click', showSettings);
@@ -727,4 +1030,5 @@
   window._banklar_applyDailyInterest = applyDailyInterest;
   window._banklar_activarIntereses = _banklar_activarIntereses;
   window._banklar_exportData = exportData;
+  window._banklar_transferMoney = transferMoney;
 })();
