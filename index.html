@@ -26,10 +26,7 @@
       <article class="card balance-card">
         <div class="card-header">
           <h2>Balances</h2>
-          <div>
-            <button id="transfer-nu-nequi" class="btn-ghost" style="margin-right: 8px; font-size: 12px;">Transferir Nu → Nequi</button>
-            <button id="refresh-balances" class="refresh-btn" aria-label="Actualizar balances">↻</button>
-          </div>
+          <button id="refresh-balances" class="refresh-btn" aria-label="Actualizar balances">↻</button>
         </div>
         <div class="balances">
           <div class="balance-item">
@@ -50,7 +47,6 @@
         </div>
       </article>
 
-      <!-- El resto del código permanece igual -->
       <article class="card quick-add">
         <h2>Registrar Transacción</h2>
         <form id="tx-form">
@@ -60,21 +56,6 @@
               <option value="income">Ingreso</option>
               <option value="expense">Gasto</option>
               <option value="transfer">Transferencia entre cuentas</option>
-            </select>
-          </div>
-
-          <!-- Sección para transferencias -->
-          <div class="row" id="transfer-section" style="display:none">
-            <label for="transfer-from">Desde</label>
-            <select id="transfer-from">
-              <option value="nu">Caja Nu</option>
-              <option value="nequi">Nequi</option>
-            </select>
-            <div style="margin: 8px 0; text-align: center; font-size: 14px; color: var(--muted);">→</div>
-            <label for="transfer-to">Hacia</label>
-            <select id="transfer-to">
-              <option value="nequi">Nequi</option>
-              <option value="nu">Caja Nu</option>
             </select>
           </div>
 
@@ -99,12 +80,21 @@
             </select>
           </div>
 
-          <div class="row">
-            <label for="tx-amount">Monto</label>
-            <input id="tx-amount" type="number" min="0.01" step="0.01" placeholder="0.00" required>
+          <div class="row" id="transfer-from-row" style="display:none">
+            <label for="transfer-from">Transferir desde</label>
+            <select id="transfer-from">
+              <option value="nu">Caja Nu → Nequi</option>
+              <option value="nequi">Nequi → Caja Nu</option>
+            </select>
           </div>
 
-          <div class="row" id="account-section">
+          <div class="row">
+            <label for="tx-amount">Monto</label>
+            <input id="tx-amount" type="text" placeholder="0,00" required class="currency-input">
+            <div class="currency-hint">Escribe números sin puntos ni comas</div>
+          </div>
+
+          <div class="row" id="tx-account-row">
             <label for="tx-account">Cuenta</label>
             <select id="tx-account">
               <option value="nequi">Nequi</option>
@@ -112,13 +102,13 @@
             </select>
           </div>
 
-          <div class="row" id="deposit-to-nu-row">
+          <div class="row" id="deposit-to-nu-row" style="display:none">
             <label><input type="checkbox" id="deposit-to-nu"> Depositar todo/parte en Caja Nu</label>
           </div>
 
           <div class="row" id="nu-split-row" style="display:none">
             <label for="nu-split-amount">Monto a enviar a NU (dejar vacío para todo)</label>
-            <input id="nu-split-amount" type="number" min="0" step="0.01" placeholder="Ej: 50.00">
+            <input id="nu-split-amount" type="text" placeholder="Ej: 50,00" class="currency-input">
           </div>
 
           <div class="row actions">
@@ -128,7 +118,6 @@
         </form>
       </article>
 
-      <!-- El resto del código permanece igual -->
       <article class="card stats-card">
         <h2>Estadísticas & Alertas</h2>
         <div id="alerts" class="alerts"></div>
@@ -183,35 +172,14 @@
     </section>
   </main>
 
-  <!-- Modal para transferencia rápida -->
-  <div id="transfer-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="transfer-title">
-    <h3 id="transfer-title">Transferir de Caja Nu a Nequi</h3>
-    <form id="transfer-form">
-      <div class="row">
-        <label for="transfer-amount">Monto a transferir</label>
-        <input id="transfer-amount" type="number" min="0.01" step="0.01" placeholder="0.00" required>
-      </div>
-      <div class="row">
-        <div class="balance-info">
-          <div>Disponible en Caja Nu: <span id="nu-available">$0.00</span></div>
-        </div>
-      </div>
-      <div class="row actions">
-        <button type="submit" class="btn-primary">Transferir ahora</button>
-        <button type="button" id="btn-cancel-transfer" class="btn-ghost">Cancelar</button>
-      </div>
-    </form>
-  </div>
-
-  <!-- El resto de los modales permanecen igual -->
   <div id="modal-overlay" class="modal-overlay hidden"></div>
 
   <div id="setup-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="setup-title">
     <h3 id="setup-title">Primera vez — Configura tu cuenta</h3>
     <form id="setup-form">
       <div class="row"><label for="user-name">Nombre</label><input id="user-name" type="text" required placeholder="Tu nombre"></div>
-      <div class="row"><label for="user-nu">Sueldo/Saldo en Caja Nu</label><input id="user-nu" type="number" min="0" step="0.01" value="0.00" required></div>
-      <div class="row"><label for="user-nequi">Saldo en Nequi</label><input id="user-nequi" type="number" min="0" step="0.01" value="0.00" required></div>
+      <div class="row"><label for="user-nu">Sueldo/Saldo en Caja Nu</label><input id="user-nu" type="text" value="0,00" required class="currency-input"></div>
+      <div class="row"><label for="user-nequi">Saldo en Nequi</label><input id="user-nequi" type="text" value="0,00" required class="currency-input"></div>
       <div class="row"><label for="user-nu-ea">% EA (Caja Nu)</label><input id="user-nu-ea" type="number" min="0" step="0.01" value="8.5" required></div>
       <div class="row actions"><button type="submit" class="btn-primary">Guardar y empezar</button></div>
     </form>
@@ -241,8 +209,8 @@
     <h3 id="settings-title">Ajustes</h3>
     <form id="settings-form">
       <div class="row"><label for="settings-nu-ea">Cambiar % EA (Caja Nu)</label><input id="settings-nu-ea" type="number" min="0" step="0.01" required></div>
-      <div class="row"><label for="settings-low-threshold">Umbral alerta saldo bajo (Total)</label><input id="settings-low-threshold" type="number" min="0" step="0.01" required></div>
-      <div class="row"><label for="settings-currency">Moneda</label><select id="settings-currency"><option value="COP">COP</option><option value="USD">USD</option value="EUR">EUR</option></select></div>
+      <div class="row"><label for="settings-low-threshold">Umbral alerta saldo bajo (Total)</label><input id="settings-low-threshold" type="text" required class="currency-input"></div>
+      <div class="row"><label for="settings-currency">Moneda</label><select id="settings-currency"><option value="COP">COP</option><option value="USD">USD</option><option value="EUR">EUR</option></select></div>
       <div class="row actions"><button type="submit" class="btn-primary">Guardar</button><button id="btn-apply-interest" type="button" class="btn-ghost">Aplicar interés ahora</button></div>
     </form>
   </div>
@@ -253,7 +221,7 @@
       <div id="budgets-form-list"></div>
       <div class="row" style="margin-top:6px;gap:8px;display:flex;align-items:center">
         <select id="new-budget-name" style="flex:1;padding:8px;border-radius:8px;border:1px solid rgba(0,0,0,0.06)"><option value="" disabled selected>Seleccionar categoría</option></select>
-        <input id="new-budget-amt" placeholder="Monto" type="number" min="0" step="0.01" style="width:120px;padding:8px;border-radius:8px;border:1px solid rgba(0,0,0,0.06)">
+        <input id="new-budget-amt" placeholder="Monto" type="text" class="currency-input" style="width:120px;padding:8px;border-radius:8px;border:1px solid rgba(0,0,0,0.06)">
         <button id="btn-add-budget" type="button" class="btn-ghost">Agregar</button>
       </div>
       <div class="row actions"><button type="submit" class="btn-primary">Guardar presupuestos</button><button id="btn-close-budgets" class="btn-ghost" type="button">Cancelar</button></div>
