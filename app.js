@@ -87,7 +87,7 @@
     if (!container) return;
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    toast.innerHTML = `<div class="toast-icon">${type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ'}</div><div class="toast-message">${message}</div>`;
+    toast.innerHTML = `<div class="toast-icon">${type === 'success' ? '✓' : type === 'error' ? '✕' : type === 'warning' ? '⚠' : 'ℹ'}</div><div class="toast-message">${message}</div>`;
     container.appendChild(toast);
     setTimeout(() => {
       if (!toast.parentNode) return;
@@ -97,7 +97,7 @@
   }
 
   // ---------- Storage ----------
-  const STORAGE_KEY = 'banklar_finances_v4';
+  const STORAGE_KEY = 'banklar_finances_v5';
   function saveState(s) {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); return true; }
     catch (e) { showToast('Error al guardar datos', 'error'); console.error(e); return false; }
@@ -116,15 +116,36 @@
       filename = `banklar-backup-${new Date().toISOString().split('T')[0]}.json`;
     } else {
       // csv
-      const headers = ['Fecha', 'Tipo', 'Monto', 'Cuenta', 'Categoría/Origen', 'Descripción'];
-      const rows = (s.transactions || []).map(tx => [
-        tx.date.split('T')[0],
-        tx.type === 'income' ? 'Ingreso' : tx.type === 'transfer' ? 'Transferencia' : 'Gasto',
-        tx.amount,
-        tx.account === 'nu' ? 'Caja Nu' : 'Nequi',
-        tx.type === 'income' ? (tx.source || 'Ingreso') : tx.type === 'transfer' ? 'Transferencia' : (tx.category || 'Gasto'),
-        tx.description || ''
-      ]);
+      const headers = ['Fecha', 'Tipo', 'Monto', 'Cuenta/Origen', 'Destino', 'Categoría/Origen', 'Descripción'];
+      const rows = (s.transactions || []).map(tx => {
+        let account = '';
+        let destination = '';
+        
+        if (tx.type === 'transfer') {
+          account = tx.from === 'nu' ? 'Caja Nu' : tx.from === 'nequi' ? 'Nequi' : 'Efectivo';
+          destination = tx.to === 'nu' ? 'Caja Nu' : tx.to === 'nequi' ? 'Nequi' : 'Efectivo';
+        } else if (tx.type === 'cash-conversion') {
+          if (tx.conversionType === 'to_cash') {
+            account = tx.from === 'nu' ? 'Caja Nu' : 'Nequi';
+            destination = 'Efectivo';
+          } else {
+            account = 'Efectivo';
+            destination = tx.to === 'nu' ? 'Caja Nu' : 'Nequi';
+          }
+        } else {
+          account = tx.account === 'nu' ? 'Caja Nu' : tx.account === 'nequi' ? 'Nequi' : 'Efectivo';
+        }
+        
+        return [
+          tx.date.split('T')[0],
+          tx.type === 'income' ? 'Ingreso' : tx.type === 'transfer' ? 'Transferencia' : tx.type === 'cash-conversion' ? 'Conversión' : 'Gasto',
+          tx.amount,
+          account,
+          destination,
+          tx.type === 'income' ? (tx.source || 'Ingreso') : tx.type === 'transfer' ? 'Transferencia' : tx.type === 'cash-conversion' ? 'Conversión' : (tx.category || 'Gasto'),
+          tx.description || ''
+        ];
+      });
       data = [headers, ...rows].map(row => row.map(f => `"${String(f).replace(/"/g, '""')}"`).join(',')).join('\n');
       mimeType = 'text/csv';
       filename = `banklar-transactions-${new Date().toISOString().split('T')[0]}.csv`;
@@ -145,17 +166,18 @@
     meta: { 
       lastInterestApplied: null, 
       lastUpdated: nowISO(),
-      dailyInterests: {} // Nuevo: registro de intereses diarios
+      dailyInterests: {}
     }
   };
 
-  const DEFAULT_CATEGORIES = ['Transporte', 'Skincare', 'Salud', 'Entretenimiento', 'Comida', 'Otros'];
+  const DEFAULT_CATEGORIES = ['Transporte', 'Skincare', 'Salud', 'Entretenimiento', 'Comida', 'Efectivo', 'Otros'];
 
   // ---------- Cached elements ----------
   const el = {
     greeting: $('greeting'),
     balanceNu: $('balance-nu'),
     balanceNequi: $('balance-nequi'),
+    balanceCash: $('balance-cash'),
     balanceTotal: $('balance-total'),
     balanceStatus: $('balance-status'),
     nuInterestInfo: $('nu-interest-info'),
@@ -164,9 +186,13 @@
     incomeSourceRow: $('income-source-row'),
     expenseCategoryRow: $('expense-category-row'),
     transferFromRow: $('transfer-from-row'),
+    cashConversionRow: $('cash-conversion-row'),
+    cashConversionDetailsRow: $('cash-conversion-details-row'),
     incomeSource: $('income-source'),
     expenseCategory: $('expense-category'),
     transferFrom: $('transfer-from'),
+    cashConversionType: $('cash-conversion-type'),
+    cashConversionDetails: $('cash-conversion-details'),
     txAmount: $('tx-amount'),
     txAccount: $('tx-account'),
     txAccountRow: $('tx-account-row'),
@@ -224,13 +250,14 @@
 
   // ---------- Transactions / totals ----------
   function calcTotals() {
-    let incomes = 0, expenses = 0, transfers = 0;
+    let incomes = 0, expenses = 0, transfers = 0, conversions = 0;
     (state.transactions || []).forEach(t => {
       if (t.type === 'income') incomes += Number(t.amount);
       else if (t.type === 'expense') expenses += Number(t.amount);
       else if (t.type === 'transfer') transfers += Number(t.amount);
+      else if (t.type === 'cash-conversion') conversions += Number(t.amount);
     });
-    return { incomes, expenses, transfers };
+    return { incomes, expenses, transfers, conversions };
   }
 
   function calcExpensesByCategory() {
@@ -263,29 +290,79 @@
   function computeBalances() {
     let nu = state.user ? Number(state.user.nu || 0) : 0;
     let nequi = state.user ? Number(state.user.nequi || 0) : 0;
+    let cash = state.user ? Number(state.user.cash || 0) : 0;
+    
     const txs = (state.transactions || []).slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+    
     txs.forEach(tx => {
       if (tx.type === 'income') {
         if (tx.nuAllocated && tx.nuAllocated > 0) {
           nu += Number(tx.nuAllocated);
           const rest = Number(tx.amount) - Number(tx.nuAllocated);
-          if (rest > 0) nequi += rest;
-        } else { if (tx.account === 'nu') nu += Number(tx.amount); else nequi += Number(tx.amount); }
+          if (rest > 0) {
+            if (tx.account === 'nequi') nequi += rest;
+            else if (tx.account === 'cash') cash += rest;
+          }
+        } else { 
+          if (tx.account === 'nu') nu += Number(tx.amount);
+          else if (tx.account === 'nequi') nequi += Number(tx.amount);
+          else if (tx.account === 'cash') cash += Number(tx.amount);
+        }
       } else if (tx.type === 'expense') {
-        if (tx.account === 'nu') nu -= Number(tx.amount); else nequi -= Number(tx.amount);
+        if (tx.account === 'nu') nu -= Number(tx.amount);
+        else if (tx.account === 'nequi') nequi -= Number(tx.amount);
+        else if (tx.account === 'cash') cash -= Number(tx.amount);
       } else if (tx.type === 'transfer') {
+        // Transferencias estándar
         if (tx.from === 'nu' && tx.to === 'nequi') {
-          // Transfer from Nu to Nequi
           nu -= Number(tx.amount);
           nequi += Number(tx.amount);
         } else if (tx.from === 'nequi' && tx.to === 'nu') {
-          // Transfer from Nequi to Nu
           nequi -= Number(tx.amount);
           nu += Number(tx.amount);
+        } else if (tx.from === 'cash' && tx.to === 'nu') {
+          cash -= Number(tx.amount);
+          nu += Number(tx.amount);
+        } else if (tx.from === 'cash' && tx.to === 'nequi') {
+          cash -= Number(tx.amount);
+          nequi += Number(tx.amount);
+        } else if (tx.from === 'nu' && tx.to === 'cash') {
+          nu -= Number(tx.amount);
+          cash += Number(tx.amount);
+        } else if (tx.from === 'nequi' && tx.to === 'cash') {
+          nequi -= Number(tx.amount);
+          cash += Number(tx.amount);
+        }
+      } else if (tx.type === 'cash-conversion') {
+        // Conversiones de efectivo (alias de transfer)
+        if (tx.conversionType === 'to_cash') {
+          // Digital → Efectivo
+          if (tx.from === 'nu') {
+            nu -= Number(tx.amount);
+            cash += Number(tx.amount);
+          } else if (tx.from === 'nequi') {
+            nequi -= Number(tx.amount);
+            cash += Number(tx.amount);
+          }
+        } else if (tx.conversionType === 'from_cash') {
+          // Efectivo → Digital
+          if (tx.to === 'nu') {
+            cash -= Number(tx.amount);
+            nu += Number(tx.amount);
+          } else if (tx.to === 'nequi') {
+            cash -= Number(tx.amount);
+            nequi += Number(tx.amount);
+          }
         }
       }
     });
-    return { nu, nequi, total: nu + nequi };
+    
+    return { 
+      nu: Math.max(0, nu), 
+      nequi: Math.max(0, nequi), 
+      cash: Math.max(0, cash), 
+      total: Math.max(0, nu + nequi + cash) 
+    };
   }
 
   // Calcular balances en una fecha específica (para intereses)
@@ -293,6 +370,7 @@
     const target = new Date(targetDate);
     let nu = state.user ? Number(state.user.nu || 0) : 0;
     let nequi = state.user ? Number(state.user.nequi || 0) : 0;
+    let cash = state.user ? Number(state.user.cash || 0) : 0;
     
     const txs = (state.transactions || []).slice().sort((a, b) => new Date(a.date) - new Date(b.date));
     
@@ -303,14 +381,19 @@
           if (tx.nuAllocated && tx.nuAllocated > 0) {
             nu += Number(tx.nuAllocated);
             const rest = Number(tx.amount) - Number(tx.nuAllocated);
-            if (rest > 0) nequi += rest;
+            if (rest > 0) {
+              if (tx.account === 'nequi') nequi += rest;
+              else if (tx.account === 'cash') cash += rest;
+            }
           } else { 
-            if (tx.account === 'nu') nu += Number(tx.amount); 
-            else nequi += Number(tx.amount); 
+            if (tx.account === 'nu') nu += Number(tx.amount);
+            else if (tx.account === 'nequi') nequi += Number(tx.amount);
+            else if (tx.account === 'cash') cash += Number(tx.amount);
           }
         } else if (tx.type === 'expense') {
-          if (tx.account === 'nu') nu -= Number(tx.amount); 
-          else nequi -= Number(tx.amount);
+          if (tx.account === 'nu') nu -= Number(tx.amount);
+          else if (tx.account === 'nequi') nequi -= Number(tx.amount);
+          else if (tx.account === 'cash') cash -= Number(tx.amount);
         } else if (tx.type === 'transfer') {
           if (tx.from === 'nu' && tx.to === 'nequi') {
             nu -= Number(tx.amount);
@@ -318,20 +401,57 @@
           } else if (tx.from === 'nequi' && tx.to === 'nu') {
             nequi -= Number(tx.amount);
             nu += Number(tx.amount);
+          } else if (tx.from === 'cash' && tx.to === 'nu') {
+            cash -= Number(tx.amount);
+            nu += Number(tx.amount);
+          } else if (tx.from === 'cash' && tx.to === 'nequi') {
+            cash -= Number(tx.amount);
+            nequi += Number(tx.amount);
+          } else if (tx.from === 'nu' && tx.to === 'cash') {
+            nu -= Number(tx.amount);
+            cash += Number(tx.amount);
+          } else if (tx.from === 'nequi' && tx.to === 'cash') {
+            nequi -= Number(tx.amount);
+            cash += Number(tx.amount);
+          }
+        } else if (tx.type === 'cash-conversion') {
+          if (tx.conversionType === 'to_cash') {
+            if (tx.from === 'nu') {
+              nu -= Number(tx.amount);
+              cash += Number(tx.amount);
+            } else if (tx.from === 'nequi') {
+              nequi -= Number(tx.amount);
+              cash += Number(tx.amount);
+            }
+          } else if (tx.conversionType === 'from_cash') {
+            if (tx.to === 'nu') {
+              cash -= Number(tx.amount);
+              nu += Number(tx.amount);
+            } else if (tx.to === 'nequi') {
+              cash -= Number(tx.amount);
+              nequi += Number(tx.amount);
+            }
           }
         }
       }
     });
     
-    return { nu, nequi, total: nu + nequi };
+    return { 
+      nu: Math.max(0, nu), 
+      nequi: Math.max(0, nequi), 
+      cash: Math.max(0, cash), 
+      total: Math.max(0, nu + nequi + cash) 
+    };
   }
 
-  // ---------- SISTEMA DE INTERESES COMPUESTOS PERFECTO ----------
+  // ---------- SISTEMA DE INTERESES COMPUESTOS MEJORADO ----------
   
   // Calcular tasa diaria efectiva (interés compuesto)
   function calculateDailyRate(annualRate) {
     // Fórmula exacta para interés compuesto diario
-    return Math.pow(1 + annualRate/100, 1/365) - 1;
+    // Convertir porcentaje a decimal y calcular tasa diaria
+    const annualDecimal = annualRate / 100;
+    return Math.pow(1 + annualDecimal, 1/365) - 1;
   }
   
   // Calcular interés para un día específico
@@ -374,7 +494,7 @@
     return pendingDays;
   }
   
-  // Calcular intereses acumulados de forma COMPUESTA
+  // Calcular intereses acumulados de forma COMPUESTA y PRECISA
   function computeAccruedInterestCompounded() {
     if (!state.user || !state.meta.lastInterestApplied) {
       return 0;
@@ -393,7 +513,7 @@
       
       // Registrar interés calculado para este día
       if (!state.meta.dailyInterests) state.meta.dailyInterests = {};
-      state.meta.dailyInterests[day] = Number(dayInterest.toFixed(4));
+      state.meta.dailyInterests[day] = Number(dayInterest.toFixed(6));
     });
     
     return totalInterest;
@@ -429,7 +549,8 @@
       account: 'nu',
       source: 'Interés Compuesto EA',
       description: `Interés compuesto acumulado (${state.settings.nuEA}% EA)`,
-      nuAllocated: Number(interest.toFixed(2))
+      nuAllocated: Number(interest.toFixed(2)),
+      isInterest: true
     };
     
     // Agregar transacción
@@ -493,12 +614,12 @@
     const balances = computeBalances();
     const annualRate = state.settings.nuEA || 8.25;
     
-    // Fórmula de interés compuesto: A = P(1 + r/n)^(nt)
-    // Para proyección anual diaria: A = P(1 + r/365)^365
+    // Fórmula de interés compuesto: A = P(1 + r)^n para proyección anual
     const dailyRate = calculateDailyRate(annualRate);
     const annualFactor = Math.pow(1 + dailyRate, 365);
     
-    return balances.nu * (annualFactor - 1);
+    const projection = balances.nu * (annualFactor - 1);
+    return isNaN(projection) ? 0 : projection;
   }
 
   // ---------- Rendering ----------
@@ -507,26 +628,31 @@
     hideAllModals();
     if (el.greeting) el.greeting.textContent = `Hola, ${state.user.name}`;
     const balances = computeBalances(), currency = state.settings.currency || 'COP';
+    
+    // Actualizar balances en UI
     if (el.balanceNu) el.balanceNu.textContent = formatCurrency(balances.nu, currency);
     if (el.balanceNequi) el.balanceNequi.textContent = formatCurrency(balances.nequi, currency);
+    if (el.balanceCash) el.balanceCash.textContent = formatCurrency(balances.cash, currency);
     if (el.balanceTotal) el.balanceTotal.textContent = formatCurrency(balances.total, currency);
-    if (el.nuInterestInfo) el.nuInterestInfo.textContent = `EA: ${Number(state.settings.nuEA).toFixed(2)}% (Compuesto)`;
     
-    // Mostrar interés acumulado hoy
-    const todayInterest = getTodayAccruedInterest();
-    if (todayInterest > 0) {
-      if (el.nuInterestInfo) {
+    // Mostrar información de interés
+    if (el.nuInterestInfo) {
+      const todayInterest = getTodayAccruedInterest();
+      if (todayInterest > 0) {
         el.nuInterestInfo.innerHTML = `EA: ${Number(state.settings.nuEA).toFixed(2)}%<br><small>Hoy: +${formatCurrency(todayInterest, currency)}</small>`;
+      } else {
+        el.nuInterestInfo.textContent = `EA: ${Number(state.settings.nuEA).toFixed(2)}% (Compuesto)`;
       }
     }
     
+    // Mostrar estado del saldo
     const low = Number(state.settings.lowThreshold || 0);
     if (el.balanceStatus) {
       el.balanceStatus.textContent = balances.total < low ? 'Saldo bajo' : 'Estable';
       el.balanceStatus.style.color = balances.total < low ? '#ef4444' : '#10b981';
     }
 
-    // last transactions
+    // Últimas transacciones
     if (el.lastTxList) {
       el.lastTxList.innerHTML = '';
       const sorted = (state.transactions || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -536,24 +662,56 @@
       } else {
         last3.forEach(tx => {
           const li = document.createElement('li'); 
-          li.className = `tx-item ${tx.type === 'transfer' ? 'tx-transfer' : ''}`;
+          let cssClass = 'tx-item';
+          
+          if (tx.type === 'transfer') {
+            cssClass += ' tx-transfer';
+          } else if (tx.type === 'cash-conversion') {
+            cssClass += ' tx-cash-conversion';
+          }
+          
+          li.className = cssClass;
           
           let description = '';
           let icon = '';
+          let amountDisplay = '';
+          
           if (tx.type === 'transfer') {
-            description = `${tx.from === 'nu' ? 'Nu → Nequi' : 'Nequi → Nu'}`;
+            description = `${tx.from === 'nu' ? 'Nu → Nequi' : tx.from === 'nequi' ? 'Nequi → Nu' : tx.from === 'cash' ? 'Efectivo → ' + (tx.to === 'nu' ? 'Nu' : 'Nequi') : (tx.to === 'cash' ? '→ Efectivo' : 'Transferencia')}`;
             icon = '🔄 ';
+            amountDisplay = `↔ ${formatCurrency(tx.amount, currency)}`;
+          } else if (tx.type === 'cash-conversion') {
+            if (tx.conversionType === 'to_cash') {
+              description = `${tx.from === 'nu' ? 'Nu → Efectivo' : 'Nequi → Efectivo'}`;
+              icon = '💵 ';
+            } else {
+              description = `Efectivo → ${tx.to === 'nu' ? 'Nu' : 'Nequi'}`;
+              icon = '🏦 ';
+            }
+            amountDisplay = `↔ ${formatCurrency(tx.amount, currency)}`;
           } else if (tx.type === 'income') {
             description = tx.source || 'Ingreso';
             icon = '⬆️ ';
+            amountDisplay = `+ ${formatCurrency(tx.amount, currency)}`;
           } else {
             description = tx.category || 'Gasto';
             icon = '⬇️ ';
+            amountDisplay = `- ${formatCurrency(tx.amount, currency)}`;
+          }
+          
+          // Determinar cuenta para mostrar
+          let accountInfo = '';
+          if (tx.type === 'income' || tx.type === 'expense') {
+            accountInfo = tx.account === 'nu' ? 'Nu' : tx.account === 'nequi' ? 'Nequi' : 'Efectivo';
+          } else if (tx.type === 'transfer') {
+            accountInfo = 'Transferencia';
+          } else if (tx.type === 'cash-conversion') {
+            accountInfo = 'Conversión';
           }
           
           li.innerHTML = `
             <div>
-              <div><strong>${icon}${tx.type === 'income' ? '+' : tx.type === 'transfer' ? '↔' : '-'} ${formatCurrency(tx.amount, currency)}</strong> <span class="meta">| ${tx.type === 'transfer' ? 'Transferencia' : tx.account.toUpperCase()} | ${tx.date.slice(0,10)}</span></div>
+              <div><strong>${icon}${amountDisplay}</strong> <span class="meta">| ${accountInfo} | ${tx.date.slice(0,10)}</span></div>
               <div class="meta">${description}</div>
             </div>
             <div class="actions">
@@ -565,15 +723,19 @@
       }
     }
 
+    // Estadísticas
     const totals = calcTotals();
     if (el.totalIncomes) el.totalIncomes.textContent = formatCurrency(totals.incomes, currency);
     if (el.totalExpenses) el.totalExpenses.textContent = formatCurrency(totals.expenses, currency);
-    const rec = suggestSavings(totals); if (el.suggestedSavings) el.suggestedSavings.textContent = rec.text;
     
-    // Proyección de interés anual CORREGIDA (compuesta)
+    const rec = suggestSavings(totals); 
+    if (el.suggestedSavings) el.suggestedSavings.textContent = rec.text;
+    
+    // Proyección de interés anual
     const projected = getAnnualInterestProjection(); 
     if (el.projectedInterest) el.projectedInterest.textContent = formatCurrency(projected, currency);
 
+    // Renderizar alertas, presupuestos, etc.
     renderAlerts(balances, totals);
     renderBudgets(balances, totals);
     renderExpensesPie();
@@ -599,18 +761,32 @@
       }
     }
     
+    // Alerta de saldo bajo en efectivo
+    if (balances.cash < 10000 && balances.cash > 0) {
+      const d = document.createElement('div'); 
+      d.className = 'alert warning'; 
+      d.textContent = `⚠️ Poco efectivo: ${formatCurrency(balances.cash, state.settings.currency)}. Considera hacer un retiro.`;
+      el.alerts.appendChild(d);
+    }
+    
+    // Alerta de saldo total bajo
     if (balances.total < Number(state.settings.lowThreshold || 0)) {
       const d = document.createElement('div'); d.className = 'alert danger'; d.textContent = `Alerta: tu saldo total es bajo (${formatCurrency(balances.total, state.settings.currency)}). Revisa tu presupuesto.`; el.alerts.appendChild(d);
     } else {
       const d = document.createElement('div'); d.className = 'alert good'; d.textContent = `Saldo OK. Total disponible ${formatCurrency(balances.total, state.settings.currency)}.`; el.alerts.appendChild(d);
     }
+    
+    // Alerta de gastos mayores que ingresos
     if (totals.expenses > totals.incomes) {
       const d = document.createElement('div'); d.className = 'alert danger'; d.textContent = `Estás gastando más de lo que ingresas (Gastos ${formatCurrency(totals.expenses, state.settings.currency)} > Ingresos ${formatCurrency(totals.incomes, state.settings.currency)}).`; el.alerts.appendChild(d);
     } else {
       const ratio = totals.incomes > 0 ? (totals.expenses / totals.incomes) : 0;
-      if (ratio > 0.8) { const d = document.createElement('div'); d.className = 'alert info'; d.textContent = `Atención: tus gastos están en ${Math.round(ratio * 100)}% de tus ingresos.`; el.alerts.appendChild(d); }
+      if (ratio > 0.8) { 
+        const d = document.createElement('div'); d.className = 'alert info'; d.textContent = `Atención: tus gastos están en ${Math.round(ratio * 100)}% de tus ingresos.`; el.alerts.appendChild(d); 
+      }
     }
 
+    // Alertas de presupuesto
     const spentByCat = calcExpensesByCategory();
     Object.keys(state.budgets).forEach(cat => {
       const spent = spentByCat[cat] || 0, budget = state.budgets[cat] || 0;
@@ -637,25 +813,53 @@
 
   // ---------- Pie chart ----------
   function renderExpensesPie() {
-    if (!el.pieCanvas) return;
-    const canvas = el.pieCanvas, ctx = canvas.getContext('2d'), rect = canvas.getBoundingClientRect();
-    canvas.width = Math.max(220, Math.floor(rect.width)); canvas.height = 160; ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const data = calcExpensesByCategory(); const entries = Object.entries(data).filter(e => e[1] > 0);
+    const canvas = $('expenses-pie');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.max(220, Math.floor(rect.width)); 
+    canvas.height = 160; 
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    const data = calcExpensesByCategory(); 
+    const entries = Object.entries(data).filter(e => e[1] > 0);
+    
     if (entries.length === 0) {
-      ctx.fillStyle = 'rgba(15,9,55,0.04)'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.fillStyle = '#6b7280'; ctx.font = '12px Inter'; ctx.textAlign = 'center'; ctx.fillText('Sin gastos registrados', canvas.width / 2, 80); return;
+      ctx.fillStyle = 'rgba(15,9,55,0.04)'; 
+      ctx.fillRect(0, 0, canvas.width, canvas.height); 
+      ctx.fillStyle = '#6b7280'; 
+      ctx.font = '12px Inter'; 
+      ctx.textAlign = 'center'; 
+      ctx.fillText('Sin gastos registrados', canvas.width / 2, 80); 
+      return;
     }
-    const total = entries.reduce((s, e) => s + e[1], 0); let start = -Math.PI / 2;
-    const colors = ['#7c3aed', '#a78bfa', '#c084fc', '#f472b6', '#d946ef', '#c026d3', '#8b5cf6'];
+    
+    const total = entries.reduce((s, e) => s + e[1], 0); 
+    let start = -Math.PI / 2;
+    const colors = ['#7c3aed', '#a78bfa', '#c084fc', '#f472b6', '#d946ef', '#c026d3', '#8b5cf6', '#f59e0b', '#10b981'];
+    
     entries.forEach((e, i) => {
       const slice = e[1] / total * (Math.PI * 2);
-      ctx.beginPath(); ctx.moveTo(canvas.width * 0.33, 80); ctx.arc(canvas.width * 0.33, 80, 60, start, start + slice); ctx.closePath();
-      ctx.fillStyle = colors[i % colors.length]; ctx.fill();
+      ctx.beginPath(); 
+      ctx.moveTo(canvas.width * 0.33, 80); 
+      ctx.arc(canvas.width * 0.33, 80, 60, start, start + slice); 
+      ctx.closePath();
+      ctx.fillStyle = colors[i % colors.length]; 
+      ctx.fill();
       start += slice;
     });
-    ctx.font = '12px Inter'; ctx.textAlign = 'left'; let y = 12;
+    
+    ctx.font = '12px Inter'; 
+    ctx.textAlign = 'left'; 
+    let y = 12;
     entries.forEach((e, i) => {
-      ctx.fillStyle = colors[i % colors.length]; ctx.fillRect(canvas.width * 0.66, y, 10, 10); ctx.fillStyle = '#374151';
-      const percent = Math.round((e[1] / total) * 100); ctx.fillText(`${e[0]} (${percent}%)`, canvas.width * 0.66 + 16, y + 10); y += 18;
+      ctx.fillStyle = colors[i % colors.length]; 
+      ctx.fillRect(canvas.width * 0.66, y, 10, 10); 
+      ctx.fillStyle = '#374151';
+      const percent = Math.round((e[1] / total) * 100); 
+      ctx.fillText(`${e[0]} (${percent}%)`, canvas.width * 0.66 + 16, y + 10); 
+      y += 18;
     });
   }
 
@@ -692,20 +896,75 @@
   function updateFormVisibility() {
     const type = el.txType.value;
     const isIncome = type === 'income';
+    const isExpense = type === 'expense';
     const isTransfer = type === 'transfer';
+    const isCashConversion = type === 'cash-conversion';
     
-    // Mostrar campos según tipo de transacción
+    // Mostrar/ocultar filas según el tipo de transacción
     if (el.incomeSourceRow) el.incomeSourceRow.style.display = isIncome ? 'block' : 'none';
-    if (el.expenseCategoryRow) el.expenseCategoryRow.style.display = (type === 'expense') ? 'block' : 'none';
+    if (el.expenseCategoryRow) el.expenseCategoryRow.style.display = isExpense ? 'block' : 'none';
     if (el.transferFromRow) el.transferFromRow.style.display = isTransfer ? 'block' : 'none';
-    if (el.txAccountRow) el.txAccountRow.style.display = (isIncome || type === 'expense') ? 'block' : 'none';
+    if (el.cashConversionRow) el.cashConversionRow.style.display = isCashConversion ? 'block' : 'none';
+    if (el.cashConversionDetailsRow) el.cashConversionDetailsRow.style.display = isCashConversion ? 'block' : 'none';
     
+    // Mostrar fila de cuenta para ingresos y gastos
+    if (el.txAccountRow) {
+      el.txAccountRow.style.display = (isIncome || isExpense) ? 'block' : 'none';
+    }
+    
+    // Mostrar opción de depósito en Nu solo para ingresos
     if (el.depositToNu && el.depositToNu.parentElement) {
       el.depositToNu.parentElement.style.display = isIncome ? 'block' : 'none';
     }
     
+    // Mostrar split de Nu si está marcado
     if (el.nuSplitRow) {
       el.nuSplitRow.style.display = (isIncome && el.depositToNu && el.depositToNu.checked) ? 'block' : 'none';
+    }
+    
+    // Actualizar opciones de cuenta según el tipo
+    if (el.txAccount) {
+      const currentValue = el.txAccount.value;
+      el.txAccount.innerHTML = '';
+      
+      if (isIncome) {
+        el.txAccount.innerHTML = `
+          <option value="nequi">Nequi</option>
+          <option value="nu">Caja Nu</option>
+          <option value="cash">Efectivo</option>
+        `;
+      } else if (isExpense) {
+        el.txAccount.innerHTML = `
+          <option value="nequi">Nequi</option>
+          <option value="nu">Caja Nu</option>
+          <option value="cash">Efectivo</option>
+        `;
+      }
+      
+      // Mantener el valor anterior si existe
+      if (currentValue && Array.from(el.txAccount.options).some(opt => opt.value === currentValue)) {
+        el.txAccount.value = currentValue;
+      }
+    }
+    
+    // Actualizar opciones de conversión de efectivo
+    if (el.cashConversionDetails) {
+      const conversionType = el.cashConversionType ? el.cashConversionType.value : 'to_cash';
+      el.cashConversionDetails.innerHTML = '';
+      
+      if (conversionType === 'to_cash') {
+        // Digital → Efectivo
+        el.cashConversionDetails.innerHTML = `
+          <option value="nu_to_cash">Caja Nu → Efectivo</option>
+          <option value="nequi_to_cash">Nequi → Efectivo</option>
+        `;
+      } else {
+        // Efectivo → Digital
+        el.cashConversionDetails.innerHTML = `
+          <option value="cash_to_nu">Efectivo → Caja Nu</option>
+          <option value="cash_to_nequi">Efectivo → Nequi</option>
+        `;
+      }
     }
   }
 
@@ -716,12 +975,14 @@
     [el.setupModal, el.viewAllModal, el.settingsModal, el.budgetsModal, $('export-modal'), $('expenses-report-modal')].forEach(m => { if (m) m.classList.add('hidden'); });
     hideOverlay();
   }
+  
   function showSetup() { 
     showOverlay(); 
     if (el.setupModal) el.setupModal.classList.remove('hidden'); 
     if ($('user-nu')) $('user-nu').value = state.user ? state.user.nu.toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0,00'; 
     if ($('user-nequi')) $('user-nequi').value = state.user ? state.user.nequi.toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0,00'; 
-    if ($('user-nu-ea')) $('user-nu-ea').value = state.settings.nuEA || 8.25; 
+    if ($('user-cash')) $('user-cash').value = state.user ? state.user.cash.toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0,00'; 
+    if ($('user-nu-ea')) $('user-nu-ea').value = state.settings.nuEA || 8.5; 
   }
   
   function showViewAll() { 
@@ -734,22 +995,53 @@
     const filtered = filterTransactions(typeFilter, accountFilter, searchFilter).sort((a, b) => new Date(b.date) - new Date(a.date)); 
     if (filtered.length === 0) { container.innerHTML = '<div class="meta">No hay transacciones que coincidan con los filtros.</div>'; return; } 
     filtered.forEach(tx => { 
-      const div = document.createElement('div'); div.className = 'tx-row'; 
+      const div = document.createElement('div'); 
+      div.className = `tx-row ${tx.type === 'transfer' ? 'tx-transfer' : tx.type === 'cash-conversion' ? 'tx-cash-conversion' : ''}`;
       
       let description = '';
       let icon = '';
+      let amountDisplay = '';
+      
       if (tx.type === 'transfer') {
-        description = `${tx.from === 'nu' ? 'Nu → Nequi' : 'Nequi → Nu'}`;
+        description = `${tx.from === 'nu' ? 'Nu → Nequi' : tx.from === 'nequi' ? 'Nequi → Nu' : tx.from === 'cash' ? 'Efectivo → ' + (tx.to === 'nu' ? 'Nu' : 'Nequi') : (tx.to === 'cash' ? '→ Efectivo' : 'Transferencia')}`;
         icon = '🔄 ';
+        amountDisplay = `↔ ${formatCurrency(tx.amount, state.settings.currency)}`;
+      } else if (tx.type === 'cash-conversion') {
+        if (tx.conversionType === 'to_cash') {
+          description = `${tx.from === 'nu' ? 'Nu → Efectivo' : 'Nequi → Efectivo'}`;
+          icon = '💵 ';
+        } else {
+          description = `Efectivo → ${tx.to === 'nu' ? 'Nu' : 'Nequi'}`;
+          icon = '🏦 ';
+        }
+        amountDisplay = `↔ ${formatCurrency(tx.amount, state.settings.currency)}`;
       } else if (tx.type === 'income') {
         description = tx.source || 'Ingreso';
         icon = '⬆️ ';
+        amountDisplay = `+ ${formatCurrency(tx.amount, state.settings.currency)}`;
       } else {
         description = tx.category || 'Gasto';
         icon = '⬇️ ';
+        amountDisplay = `- ${formatCurrency(tx.amount, state.settings.currency)}`;
       }
       
-      div.innerHTML = `<div><div><strong>${icon}${tx.type === 'income' ? '+' : tx.type === 'transfer' ? '↔' : '-'} ${formatCurrency(tx.amount, state.settings.currency)}</strong> <span class="meta">| ${tx.type === 'transfer' ? 'Transferencia' : tx.account.toUpperCase()} | ${tx.date.slice(0,10)}</span></div><div class="meta">${description}</div></div><div style="display:flex;gap:6px;align-items:center"><button class="btn-ghost" data-action="revert" data-id="${tx.id}">Eliminar</button></div>`; 
+      let accountInfo = '';
+      if (tx.type === 'income' || tx.type === 'expense') {
+        accountInfo = tx.account === 'nu' ? 'Nu' : tx.account === 'nequi' ? 'Nequi' : 'Efectivo';
+      } else if (tx.type === 'transfer') {
+        accountInfo = 'Transferencia';
+      } else if (tx.type === 'cash-conversion') {
+        accountInfo = 'Conversión';
+      }
+      
+      div.innerHTML = `
+        <div>
+          <div><strong>${icon}${amountDisplay}</strong> <span class="meta">| ${accountInfo} | ${tx.date.slice(0,10)}</span></div>
+          <div class="meta">${description}</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn-ghost" data-action="revert" data-id="${tx.id}">Eliminar</button>
+        </div>`;
       container.appendChild(div); 
     });
   }
@@ -786,15 +1078,23 @@
   function filterTransactions(typeFilter, accountFilter, searchFilter) {
     return (state.transactions || []).filter(tx => {
       if (typeFilter !== 'all' && tx.type !== typeFilter) return false;
+      
       if (accountFilter !== 'all') {
         if (tx.type === 'transfer') {
-          // For transfers, check if it involves the selected account
+          // Para transferencias, verificar si involucra la cuenta seleccionada
           if (accountFilter === 'nu' && !(tx.from === 'nu' || tx.to === 'nu')) return false;
           if (accountFilter === 'nequi' && !(tx.from === 'nequi' || tx.to === 'nequi')) return false;
+          if (accountFilter === 'cash' && !(tx.from === 'cash' || tx.to === 'cash')) return false;
+        } else if (tx.type === 'cash-conversion') {
+          // Para conversiones, verificar según el tipo
+          if (accountFilter === 'nu' && !((tx.conversionType === 'to_cash' && tx.from === 'nu') || (tx.conversionType === 'from_cash' && tx.to === 'nu'))) return false;
+          if (accountFilter === 'nequi' && !((tx.conversionType === 'to_cash' && tx.from === 'nequi') || (tx.conversionType === 'from_cash' && tx.to === 'nequi'))) return false;
+          if (accountFilter === 'cash' && !((tx.conversionType === 'to_cash') || (tx.conversionType === 'from_cash'))) return false;
         } else if (tx.account !== accountFilter) {
           return false;
         }
       }
+      
       if (searchFilter) {
         const searchLower = searchFilter.toLowerCase();
         const desc = (tx.description || '').toLowerCase();
@@ -802,99 +1102,309 @@
         const category = (tx.category || '').toLowerCase();
         if (!desc.includes(searchLower) && !source.includes(searchLower) && !category.includes(searchLower)) return false;
       }
+      
       return true;
     });
   }
 
-  // ---------- Events ----------
-  if (el.txType) {
-    el.txType.addEventListener('change', updateFormVisibility);
-    // Llamar al inicio para establecer visibilidad correcta
-    updateFormVisibility();
-  }
-
-  if (el.depositToNu) el.depositToNu.addEventListener('change', updateFormVisibility);
-
-  if (el.txForm) {
-    el.txForm.addEventListener('submit', e => {
-      e.preventDefault();
-      const type = el.txType.value; 
-      const amount = parseCurrencyFormatted(el.txAmount.value || '0');
-      
-      if (amount <= 0) { showToast('El monto debe ser mayor a 0', 'error'); return; }
-      
-      const date = nowISO();
-      
-      if (type === 'income') {
-        const source = el.incomeSource.value; 
-        const depositNU = el.depositToNu && el.depositToNu.checked; 
-        let nuAllocated = 0;
-        
-        if (depositNU) { 
-          const split = parseCurrencyFormatted(el.nuSplitAmount.value || '0'); 
-          nuAllocated = (split > 0 && split < amount) ? split : amount; 
-        }
-        
-        const account = el.txAccount.value;
-        const tx = { 
-          id: uid(), 
-          type: 'income', 
-          amount: Number(amount.toFixed(2)), 
-          date, 
-          account, 
-          source, 
-          nuAllocated: nuAllocated > 0 ? Number(nuAllocated.toFixed(2)) : 0 
-        };
-        addTransaction(tx);
-        
-      } else if (type === 'expense') {
-        const category = el.expenseCategory ? el.expenseCategory.value : 'Otros';
-        const account = el.txAccount.value;
-        const tx = { 
-          id: uid(), 
-          type: 'expense', 
-          amount: Number(amount.toFixed(2)), 
-          date, 
-          account, 
-          category 
-        };
-        addTransaction(tx);
-        
-      } else if (type === 'transfer') {
-        const fromAccount = el.transferFrom.value;
-        const toAccount = fromAccount === 'nu' ? 'nequi' : 'nu';
-        
-        // Check if source account has enough balance
-        const balances = computeBalances();
-        const sourceBalance = fromAccount === 'nu' ? balances.nu : balances.nequi;
-        
-        if (amount > sourceBalance) {
-          showToast(`Saldo insuficiente en ${fromAccount === 'nu' ? 'Caja Nu' : 'Nequi'}`, 'error');
-          return;
-        }
-        
-        const tx = { 
-          id: uid(), 
-          type: 'transfer', 
-          amount: Number(amount.toFixed(2)), 
-          date, 
-          from: fromAccount,
-          to: toAccount,
-          description: `Transferencia ${fromAccount === 'nu' ? 'Caja Nu → Nequi' : 'Nequi → Caja Nu'}`
-        };
-        addTransaction(tx);
-        showToast(`Transferencia de ${formatCurrency(amount, state.settings.currency)} realizada`, 'success');
+  // ---------- Event Listeners ----------
+  function initializeEventListeners() {
+    // Cambios en el tipo de transacción
+    if (el.txType) {
+      el.txType.addEventListener('change', updateFormVisibility);
+    }
+    
+    // Cambios en el tipo de conversión de efectivo
+    if (el.cashConversionType) {
+      el.cashConversionType.addEventListener('change', updateFormVisibility);
+    }
+    
+    // Checkbox de depósito en Nu
+    if (el.depositToNu) {
+      el.depositToNu.addEventListener('change', updateFormVisibility);
+    }
+    
+    // Formulario principal de transacción
+    if (el.txForm) {
+      el.txForm.addEventListener('submit', handleTransactionSubmit);
+    }
+    
+    // Event delegation para acciones en transacciones
+    document.addEventListener('click', handleTransactionActions);
+    
+    // Botones de vista
+    if (el.btnViewAll) el.btnViewAll.addEventListener('click', showViewAll);
+    if (el.btnViewAll2) el.btnViewAll2.addEventListener('click', showViewAll);
+    
+    // Filtros en vista completa
+    if ($('tx-filter-type')) { 
+      $('tx-filter-type').addEventListener('change', showViewAll); 
+      $('tx-filter-account').addEventListener('change', showViewAll); 
+      $('tx-search').addEventListener('input', debounce(showViewAll, 300)); 
+    }
+    
+    // Cerrar modales
+    on('close-all-tx', 'click', hideAllModals);
+    if (el.modalOverlay) el.modalOverlay.addEventListener('click', hideAllModals);
+    
+    // Ajustes
+    if (el.btnSettings) el.btnSettings.addEventListener('click', showSettings);
+    
+    // Formulario de ajustes
+    on('settings-form', 'submit', handleSettingsSubmit);
+    
+    // Aplicar interés manualmente
+    on('btn-apply-interest', 'click', () => { 
+      if (!state.user) {
+        showToast('Configura tu cuenta primero', 'error');
+        return;
       }
       
-      el.txForm.reset(); 
-      updateFormVisibility();
-      initializeCurrencyMasks();
+      if (!state.meta.lastInterestApplied) {
+        state.meta.lastInterestApplied = nowISO();
+        saveState(state);
+      }
+      
+      const interest = computeAccruedInterestCompounded();
+      if (interest < 0.01) {
+        showToast('No hay interés acumulado para aplicar', 'info');
+        return;
+      }
+      
+      if (!confirm(`Aplicar interés acumulado ${formatCurrency(interest, state.settings.currency)} (interés compuesto)?`)) return;
+      
+      applyAccruedInterest();
     });
+    
+    // Presupuestos
+    on('btn-edit-budgets', 'click', showBudgets); 
+    on('btn-close-budgets', 'click', hideAllModals);
+    
+    // Exportar
+    on('btn-export', 'click', showExportModal); 
+    on('btn-close-export', 'click', hideAllModals);
+    on('btn-export-csv', 'click', () => exportData('csv')); 
+    on('btn-export-json', 'click', () => exportData('json'));
+    
+    // Agregar presupuesto
+    on('btn-add-budget', 'click', handleAddBudget);
+    
+    // Eliminar presupuesto
+    const budgetsListEl = $('budgets-form-list');
+    if (budgetsListEl) budgetsListEl.addEventListener('click', handleBudgetRemoval);
+    
+    // Guardar presupuestos
+    if ($('budgets-form')) $('budgets-form').addEventListener('submit', handleBudgetsSubmit);
+    
+    // Setup inicial
+    if ($('setup-form')) $('setup-form').addEventListener('submit', handleSetupSubmit);
+    
+    // Refrescar balances
+    if (el.refreshBalances) el.refreshBalances.addEventListener('click', () => { 
+      checkAndApplyInterest();
+      renderAll(); 
+      showToast('Balances actualizados', 'success'); 
+    });
+    
+    // Reporte de gastos
+    if (el.btnExpensesReport) el.btnExpensesReport.addEventListener('click', showExpensesReport);
+    
+    // Cerrar reporte de gastos
+    const closeExpBtn = $('close-expenses-report'); 
+    if (closeExpBtn) closeExpBtn.addEventListener('click', hideAllModals);
   }
-
-  document.addEventListener('click', e => {
+  
+  // ---------- Handlers de Eventos ----------
+  function handleTransactionSubmit(e) {
+    e.preventDefault();
+    const type = el.txType.value; 
+    const amount = parseCurrencyFormatted(el.txAmount.value || '0');
+    
+    if (amount <= 0) { 
+      showToast('El monto debe ser mayor a 0', 'error'); 
+      return; 
+    }
+    
+    const date = nowISO();
+    
+    if (type === 'income') {
+      handleIncomeTransaction(amount, date);
+    } else if (type === 'expense') {
+      handleExpenseTransaction(amount, date);
+    } else if (type === 'transfer') {
+      handleTransferTransaction(amount, date);
+    } else if (type === 'cash-conversion') {
+      handleCashConversionTransaction(amount, date);
+    }
+    
+    // Resetear formulario y actualizar UI
+    el.txForm.reset(); 
+    updateFormVisibility();
+    initializeCurrencyMasks();
+  }
+  
+  function handleIncomeTransaction(amount, date) {
+    const source = el.incomeSource.value; 
+    const depositNU = el.depositToNu && el.depositToNu.checked; 
+    let nuAllocated = 0;
+    
+    if (depositNU) { 
+      const split = parseCurrencyFormatted(el.nuSplitAmount.value || '0'); 
+      nuAllocated = (split > 0 && split < amount) ? split : amount; 
+    }
+    
+    const account = el.txAccount.value;
+    const tx = { 
+      id: uid(), 
+      type: 'income', 
+      amount: Number(amount.toFixed(2)), 
+      date, 
+      account, 
+      source, 
+      nuAllocated: nuAllocated > 0 ? Number(nuAllocated.toFixed(2)) : 0 
+    };
+    addTransaction(tx);
+  }
+  
+  function handleExpenseTransaction(amount, date) {
+    const category = el.expenseCategory ? el.expenseCategory.value : 'Otros';
+    const account = el.txAccount.value;
+    
+    // Verificar saldo suficiente
+    const balances = computeBalances();
+    const accountBalance = account === 'nu' ? balances.nu : account === 'nequi' ? balances.nequi : balances.cash;
+    
+    if (amount > accountBalance) {
+      showToast(`Saldo insuficiente en ${account === 'nu' ? 'Caja Nu' : account === 'nequi' ? 'Nequi' : 'Efectivo'}`, 'error');
+      return;
+    }
+    
+    const tx = { 
+      id: uid(), 
+      type: 'expense', 
+      amount: Number(amount.toFixed(2)), 
+      date, 
+      account, 
+      category 
+    };
+    addTransaction(tx);
+  }
+  
+  function handleTransferTransaction(amount, date) {
+    const transferOption = el.transferFrom.value;
+    let fromAccount, toAccount;
+    
+    // Determinar cuentas según la opción seleccionada
+    switch (transferOption) {
+      case 'nu':
+        fromAccount = 'nu';
+        toAccount = 'nequi';
+        break;
+      case 'nequi':
+        fromAccount = 'nequi';
+        toAccount = 'nu';
+        break;
+      case 'cash_to_nu':
+        fromAccount = 'cash';
+        toAccount = 'nu';
+        break;
+      case 'cash_to_nequi':
+        fromAccount = 'cash';
+        toAccount = 'nequi';
+        break;
+      case 'nu_to_cash':
+        fromAccount = 'nu';
+        toAccount = 'cash';
+        break;
+      case 'nequi_to_cash':
+        fromAccount = 'nequi';
+        toAccount = 'cash';
+        break;
+      default:
+        showToast('Opción de transferencia no válida', 'error');
+        return;
+    }
+    
+    // Verificar saldo suficiente en cuenta de origen
+    const balances = computeBalances();
+    const sourceBalance = fromAccount === 'nu' ? balances.nu : fromAccount === 'nequi' ? balances.nequi : balances.cash;
+    
+    if (amount > sourceBalance) {
+      showToast(`Saldo insuficiente en ${fromAccount === 'nu' ? 'Caja Nu' : fromAccount === 'nequi' ? 'Nequi' : 'Efectivo'}`, 'error');
+      return;
+    }
+    
+    const tx = { 
+      id: uid(), 
+      type: 'transfer', 
+      amount: Number(amount.toFixed(2)), 
+      date, 
+      from: fromAccount,
+      to: toAccount,
+      description: `Transferencia ${fromAccount === 'nu' ? 'Caja Nu' : fromAccount === 'nequi' ? 'Nequi' : 'Efectivo'} → ${toAccount === 'nu' ? 'Caja Nu' : toAccount === 'nequi' ? 'Nequi' : 'Efectivo'}`
+    };
+    addTransaction(tx);
+    showToast(`Transferencia de ${formatCurrency(amount, state.settings.currency)} realizada`, 'success');
+  }
+  
+  function handleCashConversionTransaction(amount, date) {
+    const conversionType = el.cashConversionType.value;
+    const conversionDetails = el.cashConversionDetails.value;
+    
+    let fromAccount, toAccount, conversionDescription;
+    
+    // Determinar cuentas según los detalles
+    if (conversionType === 'to_cash') {
+      // Digital → Efectivo
+      if (conversionDetails === 'nu_to_cash') {
+        fromAccount = 'nu';
+        toAccount = 'cash';
+        conversionDescription = 'Caja Nu → Efectivo';
+      } else {
+        fromAccount = 'nequi';
+        toAccount = 'cash';
+        conversionDescription = 'Nequi → Efectivo';
+      }
+    } else {
+      // Efectivo → Digital
+      if (conversionDetails === 'cash_to_nu') {
+        fromAccount = 'cash';
+        toAccount = 'nu';
+        conversionDescription = 'Efectivo → Caja Nu';
+      } else {
+        fromAccount = 'cash';
+        toAccount = 'nequi';
+        conversionDescription = 'Efectivo → Nequi';
+      }
+    }
+    
+    // Verificar saldo suficiente
+    const balances = computeBalances();
+    const sourceBalance = fromAccount === 'nu' ? balances.nu : fromAccount === 'nequi' ? balances.nequi : balances.cash;
+    
+    if (amount > sourceBalance) {
+      showToast(`Saldo insuficiente en ${fromAccount === 'nu' ? 'Caja Nu' : fromAccount === 'nequi' ? 'Nequi' : 'Efectivo'}`, 'error');
+      return;
+    }
+    
+    const tx = { 
+      id: uid(), 
+      type: 'cash-conversion', 
+      amount: Number(amount.toFixed(2)), 
+      date, 
+      conversionType,
+      from: fromAccount,
+      to: toAccount,
+      description: `Conversión: ${conversionDescription}`
+    };
+    addTransaction(tx);
+    showToast(`Conversión de ${formatCurrency(amount, state.settings.currency)} realizada`, 'success');
+  }
+  
+  function handleTransactionActions(e) {
     const action = e.target.dataset.action, id = e.target.dataset.id;
     if (!action) return;
+    
     if (action === 'del' || action === 'revert') {
       if (confirm('¿Eliminar transacción? Esto revertirá su efecto.')) {
         removeTransactionById(id); 
@@ -907,9 +1417,12 @@
       let message = `Transacción:\nID: ${tx.id}\nTipo: ${tx.type}\nMonto: ${formatCurrency(tx.amount, state.settings.currency)}\nFecha: ${tx.date.slice(0,10)}`;
       
       if (tx.type === 'transfer') {
-        message += `\nDe: ${tx.from === 'nu' ? 'Caja Nu' : 'Nequi'}\nA: ${tx.to === 'nu' ? 'Caja Nu' : 'Nequi'}`;
+        message += `\nDe: ${tx.from === 'nu' ? 'Caja Nu' : tx.from === 'nequi' ? 'Nequi' : 'Efectivo'}\nA: ${tx.to === 'nu' ? 'Caja Nu' : tx.to === 'nequi' ? 'Nequi' : 'Efectivo'}`;
+      } else if (tx.type === 'cash-conversion') {
+        message += `\nTipo: ${tx.conversionType === 'to_cash' ? 'Digital → Efectivo' : 'Efectivo → Digital'}`;
+        message += `\nDe: ${tx.from === 'nu' ? 'Caja Nu' : tx.from === 'nequi' ? 'Nequi' : 'Efectivo'}\nA: ${tx.to === 'nu' ? 'Caja Nu' : tx.to === 'nequi' ? 'Nequi' : 'Efectivo'}`;
       } else {
-        message += `\nCuenta: ${tx.account}`;
+        message += `\nCuenta: ${tx.account === 'nu' ? 'Caja Nu' : tx.account === 'nequi' ? 'Nequi' : 'Efectivo'}`;
         if (tx.type === 'income') {
           message += `\nOrigen: ${tx.source}`;
           if (tx.nuAllocated > 0) message += `\nAsignado a Nu: ${formatCurrency(tx.nuAllocated, state.settings.currency)}`;
@@ -920,22 +1433,9 @@
       
       alert(message);
     }
-  });
-
-  if (el.btnViewAll) el.btnViewAll.addEventListener('click', showViewAll);
-  if (el.btnViewAll2) el.btnViewAll2.addEventListener('click', showViewAll);
-
-  if ($('tx-filter-type')) { 
-    $('tx-filter-type').addEventListener('change', showViewAll); 
-    $('tx-filter-account').addEventListener('change', showViewAll); 
-    $('tx-search').addEventListener('input', debounce(showViewAll, 300)); 
   }
   
-  on('close-all-tx', 'click', hideAllModals);
-  if (el.modalOverlay) el.modalOverlay.addEventListener('click', hideAllModals);
-  if (el.btnSettings) el.btnSettings.addEventListener('click', showSettings);
-
-  on('settings-form', 'submit', e => {
+  function handleSettingsSubmit(e) {
     e.preventDefault();
     const val = Number($('settings-nu-ea').value || 0); 
     state.settings.nuEA = val;
@@ -946,45 +1446,13 @@
     
     if (saveState(state)) {
       showToast('Configuración guardada correctamente', 'success');
-      // Recalcular intereses con nueva tasa
       checkAndApplyInterest();
     }
     hideAllModals(); 
     renderAll();
-  });
-
-  // Botón "Aplicar interés ahora" CORREGIDO
-  on('btn-apply-interest', 'click', () => { 
-    if (!state.user) {
-      showToast('Configura tu cuenta primero', 'error');
-      return;
-    }
-    
-    if (!state.meta.lastInterestApplied) {
-      state.meta.lastInterestApplied = nowISO();
-      saveState(state);
-    }
-    
-    const interest = computeAccruedInterestCompounded();
-    if (interest < 0.01) {
-      showToast('No hay interés acumulado para aplicar', 'info');
-      return;
-    }
-    
-    if (!confirm(`Aplicar interés acumulado ${formatCurrency(interest, state.settings.currency)} (interés compuesto)?`)) return;
-    
-    applyAccruedInterest();
-  });
+  }
   
-  on('btn-edit-budgets', 'click', showBudgets); 
-  on('btn-close-budgets', 'click', hideAllModals);
-
-  on('btn-export', 'click', showExportModal); 
-  on('btn-close-export', 'click', hideAllModals);
-  on('btn-export-csv', 'click', () => exportData('csv')); 
-  on('btn-export-json', 'click', () => exportData('json'));
-
-  on('btn-add-budget', 'click', () => {
+  function handleAddBudget() {
     const sel = $('new-budget-name'); 
     const name = sel ? sel.value : ''; 
     const amt = parseCurrencyFormatted($('new-budget-amt').value || '0');
@@ -1000,10 +1468,9 @@
     populateCategorySelects(); 
     showBudgets(); 
     renderAll();
-  });
-
-  const budgetsListEl = $('budgets-form-list');
-  if (budgetsListEl) budgetsListEl.addEventListener('click', e => {
+  }
+  
+  function handleBudgetRemoval(e) {
     if (e.target.classList.contains('remove-budget')) {
       const key = e.target.dataset.key; 
       if (confirm(`¿Eliminar presupuesto ${key}?`)) { 
@@ -1014,9 +1481,9 @@
         renderAll(); 
       }
     }
-  });
-
-  if ($('budgets-form')) $('budgets-form').addEventListener('submit', e => {
+  }
+  
+  function handleBudgetsSubmit(e) {
     e.preventDefault();
     const list = $('budgets-form-list'); if (!list) return;
     const selects = list.querySelectorAll('.budget-cat-select'); 
@@ -1035,17 +1502,17 @@
     populateCategorySelects(); 
     hideAllModals(); 
     renderAll();
-  });
-
-  // Setup form submission
-  if ($('setup-form')) $('setup-form').addEventListener('submit', e => {
+  }
+  
+  function handleSetupSubmit(e) {
     e.preventDefault(); 
     const name = $('user-name').value.trim(); 
     const nu = parseCurrencyFormatted($('user-nu').value || '0'); 
     const nequi = parseCurrencyFormatted($('user-nequi').value || '0'); 
-    const ea = Number($('user-nu-ea').value || 8.25);
+    const cash = parseCurrencyFormatted($('user-cash').value || '0');
+    const ea = Number($('user-nu-ea').value || 8.5);
     
-    state.user = { name, nu, nequi, createdAt: nowISO() }; 
+    state.user = { name, nu, nequi, cash, createdAt: nowISO() }; 
     state.settings.nuEA = ea; 
     
     // Inicializar sistema de intereses
@@ -1058,19 +1525,7 @@
     hideAllModals(); 
     populateCategorySelects(); 
     renderAll();
-  });
-
-  if (el.refreshBalances) el.refreshBalances.addEventListener('click', () => { 
-    // Verificar intereses antes de refrescar
-    checkAndApplyInterest();
-    renderAll(); 
-    showToast('Balances actualizados', 'success'); 
-  });
-  
-  if (el.btnExpensesReport) el.btnExpensesReport.addEventListener('click', showExpensesReport);
-  
-  const closeExpBtn = $('close-expenses-report'); 
-  if (closeExpBtn) closeExpBtn.addEventListener('click', hideAllModals);
+  }
 
   // ---------- Utilities ----------
   function debounce(func, wait) { 
@@ -1081,7 +1536,7 @@
     }; 
   }
 
-  // ---------- Debug ----------
+  // ---------- Debug / Public API ----------
   window.__banklar_clear = function () { 
     if (confirm('¿Borrar todos los datos locales?')) { 
       localStorage.removeItem(STORAGE_KEY); 
@@ -1089,10 +1544,8 @@
     } 
   };
   
-  // Función para forzar aplicación de intereses (desarrollo)
   window._banklar_forceInterest = function() {
     if (!state.meta.lastInterestApplied) {
-      // Retroceder fecha para simular días pasados
       const pastDate = new Date();
       pastDate.setDate(pastDate.getDate() - 5);
       state.meta.lastInterestApplied = pastDate.toISOString();
@@ -1102,21 +1555,23 @@
     applyAccruedInterest();
   };
   
-  // Función pública para aplicar interés
   window._banklar_applyInterestNow = function() {
     applyAccruedInterest();
   };
 
-  // ---------- Init ----------
-  if (!state.meta.lastInterestApplied && state.user) {
-    state.meta.lastInterestApplied = nowISO();
-    state.meta.dailyInterests = {};
-  }
-  
+  // ---------- Initialize ----------
   window.addEventListener('load', () => { 
+    // Inicializar estado si no existe
+    if (!state.meta.lastInterestApplied && state.user) {
+      state.meta.lastInterestApplied = nowISO();
+      state.meta.dailyInterests = {};
+    }
+    
+    // Configurar UI
     populateCategorySelects(); 
     initializeCurrencyMasks();
     updateFormVisibility();
+    initializeEventListeners();
     
     // Verificar y aplicar intereses automáticamente al cargar
     setTimeout(() => {
@@ -1127,9 +1582,10 @@
       }
     }, 1000);
     
+    // Renderizar UI
     renderAll(); 
     
-    // Verificar intereses cada hora (más frecuente para mejor UX)
+    // Verificar intereses periódicamente
     setInterval(() => {
       try {
         checkAndApplyInterest();
@@ -1138,7 +1594,7 @@
       }
     }, 1000 * 60 * 60); // Cada hora
     
-    // También verificar cada vez que la página gana foco
+    // Verificar cuando la página gana foco
     window.addEventListener('focus', () => {
       setTimeout(() => {
         checkAndApplyInterest();
@@ -1154,4 +1610,6 @@
   window._banklar_getPendingDays = getPendingInterestDays;
   window._banklar_checkInterest = checkAndApplyInterest;
   window._banklar_exportData = exportData;
+  window._banklar_computeBalances = computeBalances;
+  window._banklar_getAnnualProjection = getAnnualInterestProjection;
 })();
