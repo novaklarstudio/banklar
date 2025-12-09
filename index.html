@@ -40,6 +40,11 @@
             <div class="small">Disponible</div>
           </div>
           <div class="balance-item">
+            <div class="label">Efectivo</div>
+            <div class="amount" id="balance-cash">$0.00</div>
+            <div class="small">En mano</div>
+          </div>
+          <div class="balance-item">
             <div class="label">Total</div>
             <div class="amount" id="balance-total">$0.00</div>
             <div class="small" id="balance-status"></div>
@@ -56,6 +61,7 @@
               <option value="income">Ingreso</option>
               <option value="expense">Gasto</option>
               <option value="transfer">Transferencia entre cuentas</option>
+              <option value="cash-conversion">Conversión Efectivo</option>
             </select>
           </div>
 
@@ -64,6 +70,7 @@
             <select id="income-source">
               <option value="Salario">Salario</option>
               <option value="novaklar">novaklar</option>
+              <option value="Efectivo">Depósito en efectivo</option>
               <option value="Otros">Otros ingresos</option>
             </select>
           </div>
@@ -76,6 +83,7 @@
               <option value="Salud">Salud</option>
               <option value="Entretenimiento">Entretenimiento</option>
               <option value="Comida">Comida</option>
+              <option value="Efectivo">Retiro en efectivo</option>
               <option value="Otros">Otros</option>
             </select>
           </div>
@@ -85,6 +93,28 @@
             <select id="transfer-from">
               <option value="nu">Caja Nu → Nequi</option>
               <option value="nequi">Nequi → Caja Nu</option>
+              <option value="cash_to_nu">Efectivo → Caja Nu</option>
+              <option value="cash_to_nequi">Efectivo → Nequi</option>
+              <option value="nu_to_cash">Caja Nu → Efectivo</option>
+              <option value="nequi_to_cash">Nequi → Efectivo</option>
+            </select>
+          </div>
+
+          <div class="row" id="cash-conversion-row" style="display:none">
+            <label for="cash-conversion-type">Tipo de conversión</label>
+            <select id="cash-conversion-type">
+              <option value="to_cash">Digital → Efectivo</option>
+              <option value="from_cash">Efectivo → Digital</option>
+            </select>
+          </div>
+
+          <div class="row" id="cash-conversion-details-row" style="display:none">
+            <label for="cash-conversion-details">Detalles</label>
+            <select id="cash-conversion-details">
+              <option value="nu_to_cash">Caja Nu → Efectivo</option>
+              <option value="nequi_to_cash">Nequi → Efectivo</option>
+              <option value="cash_to_nu">Efectivo → Caja Nu</option>
+              <option value="cash_to_nequi">Efectivo → Nequi</option>
             </select>
           </div>
 
@@ -99,6 +129,7 @@
             <select id="tx-account">
               <option value="nequi">Nequi</option>
               <option value="nu">Caja Nu</option>
+              <option value="cash">Efectivo</option>
             </select>
           </div>
 
@@ -178,8 +209,9 @@
     <h3 id="setup-title">Primera vez — Configura tu cuenta</h3>
     <form id="setup-form">
       <div class="row"><label for="user-name">Nombre</label><input id="user-name" type="text" required placeholder="Tu nombre"></div>
-      <div class="row"><label for="user-nu">Sueldo/Saldo en Caja Nu</label><input id="user-nu" type="text" value="0,00" required class="currency-input"></div>
+      <div class="row"><label for="user-nu">Saldo en Caja Nu</label><input id="user-nu" type="text" value="0,00" required class="currency-input"></div>
       <div class="row"><label for="user-nequi">Saldo en Nequi</label><input id="user-nequi" type="text" value="0,00" required class="currency-input"></div>
+      <div class="row"><label for="user-cash">Saldo en Efectivo</label><input id="user-cash" type="text" value="0,00" required class="currency-input"></div>
       <div class="row"><label for="user-nu-ea">% EA (Caja Nu)</label><input id="user-nu-ea" type="number" min="0" step="0.01" value="8.5" required></div>
       <div class="row actions"><button type="submit" class="btn-primary">Guardar y empezar</button></div>
     </form>
@@ -189,8 +221,8 @@
     <h3 id="viewall-title">Todas las transacciones</h3>
     <div class="modal-toolbar">
       <div class="filter-controls">
-        <select id="tx-filter-type"><option value="all">Todas las transacciones</option><option value="income">Solo ingresos</option><option value="expense">Solo gastos</option><option value="transfer">Transferencias</option></select>
-        <select id="tx-filter-account"><option value="all">Todas las cuentas</option><option value="nu">Caja Nu</option><option value="nequi">Nequi</option></select>
+        <select id="tx-filter-type"><option value="all">Todas las transacciones</option><option value="income">Solo ingresos</option><option value="expense">Solo gastos</option><option value="transfer">Transferencias</option><option value="cash-conversion">Conversiones efectivo</option></select>
+        <select id="tx-filter-account"><option value="all">Todas las cuentas</option><option value="nu">Caja Nu</option><option value="nequi">Nequi</option><option value="cash">Efectivo</option></select>
       </div>
       <div class="search-control"><input type="text" id="tx-search" placeholder="Buscar..."></div>
     </div>
