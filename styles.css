@@ -18,6 +18,7 @@
   --balance-item-bg: rgba(255, 255, 255, 0.18);
   --danger: #ef4444;
   --good: #10b981;
+  --warning: #f59e0b;
   --card-border: rgba(15, 9, 55, 0.04);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
   --shadow-md: 0 6px 16px rgba(18, 25, 50, 0.04);
@@ -127,15 +128,29 @@ body {
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
   color: white; border: none; box-shadow: 0 8px 30px rgba(124, 58, 237, 0.12);
 }
-.balance-card .balances { display:flex; gap:12px; }
+.balance-card .balances { 
+  display: grid; 
+  grid-template-columns: repeat(2, 1fr); 
+  gap: 12px; 
+}
 .balance-item {
-  flex:1; background: var(--balance-item-bg); padding:14px; border-radius:var(--radius-md);
-  text-align:left; box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06); transition: transform 0.2s ease;
+  background: var(--balance-item-bg); 
+  padding: 14px; 
+  border-radius: var(--radius-md);
+  text-align: left; 
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06); 
+  transition: transform 0.2s ease;
 }
 .balance-item:hover { transform: translateY(-2px); }
 .balance-item .label { font-size:12px; color: rgba(255,255,255,0.95); font-weight:600; }
 .amount { font-size:20px; font-weight:700; margin-top:8px; color:white; }
 .small { font-size:12px; color: rgba(255,255,255,0.95); margin-top:6px; }
+
+/* Cash specific styling */
+.balance-item.cash-item {
+  background: rgba(255, 255, 255, 0.25);
+  border-left: 3px solid #f59e0b;
+}
 
 /* =========================
    Forms / quick add
@@ -206,6 +221,10 @@ body {
 /* Transfer specific styling */
 .tx-transfer { border-left: 3px solid #3b82f6; }
 .tx-transfer .tx-icon { color: #3b82f6; }
+
+/* Cash conversion styling */
+.tx-cash-conversion { border-left: 3px solid #f59e0b; }
+.tx-cash-conversion .tx-icon { color: #f59e0b; }
 
 /* =========================
    Stats
@@ -278,6 +297,7 @@ body {
 .alert.danger { background: linear-gradient(90deg,#fee2e2,#fecaca); color:#5f1a1a; }
 .alert.good { background: linear-gradient(90deg,#dcfce7,#bbf7d0); color:#064e3b; }
 .alert.info { background: linear-gradient(90deg,#ede9fe,#e9d5ff); color:#3b0764; }
+.alert.warning { background: linear-gradient(90deg,#fef3c7,#fde68a); color:#78350f; }
 
 /* Footer */
 .app-footer { margin-top:40px; padding:20px; border-top:1px solid rgba(15,9,55,0.04); }
@@ -290,6 +310,7 @@ body {
 .toast.success { border-left:4px solid var(--good); }
 .toast.error { border-left:4px solid var(--danger); }
 .toast.info { border-left:4px solid var(--accent); }
+.toast.warning { border-left:4px solid var(--warning); }
 
 /* =========================
    Responsive
@@ -297,6 +318,7 @@ body {
 @media (max-width: 1000px) {
   .cards { grid-template-columns: 1fr; }
   .transactions { grid-template-columns: 1fr; }
+  .balance-card .balances { grid-template-columns: 1fr; }
   .modal-toolbar { flex-direction: column; }
   .filter-controls, .search-control { width: 100%; }
   .search-control input { width: 100%; }
@@ -312,7 +334,7 @@ body {
   .stat-grid { grid-template-columns:1fr; }
   .chart-area { width:100%; }
   .transactions { grid-template-columns:1fr; }
-  .balances { flex-direction:column; }
+  .balance-card .balances { grid-template-columns: 1fr; }
   .actions { flex-direction:column; align-items:stretch; }
   .actions .btn-ghost, .actions .btn-primary { width:100%; }
   .footer-content { flex-direction:column; gap:10px; text-align:center; }
